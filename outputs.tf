@@ -42,27 +42,27 @@ output "availability_zones" {
 # --- Cluster ---
 output "cluster_name" {
   description = "Nome do cluster EKS. Usado em `aws eks update-kubeconfig`."
-  value       = module.eks.cluster_name
+  value       = aws_eks_cluster.this.name
 }
 
 output "cluster_endpoint" {
   description = "Endpoint da API do EKS. Consumido por: pipelines de deploy."
-  value       = module.eks.cluster_endpoint
+  value       = aws_eks_cluster.this.endpoint
 }
 
 output "cluster_ca" {
   description = "CA do cluster, base64. Par do cluster_endpoint para montar kubeconfig."
-  value       = module.eks.cluster_certificate_authority_data
+  value       = aws_eks_cluster.this.certificate_authority[0].data
 }
 
 output "cluster_version" {
   description = "Versao do control plane em uso."
-  value       = module.eks.cluster_version
+  value       = aws_eks_cluster.this.version
 }
 
 output "node_security_group_id" {
-  description = "SG dos nodes do EKS. Alternativa direta ao db_client_sg_id (ver ADR-005)."
-  value       = module.eks.node_security_group_id
+  description = "SG primario do cluster, tambem anexado aos nodes gerenciados. Alternativa direta ao db_client_sg_id (ver ADR-005)."
+  value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
 }
 
 # --- Identidade de cliente do banco ---
@@ -91,10 +91,10 @@ output "contract" {
     private_subnet_ids     = module.vpc.private_subnets
     public_subnet_ids      = module.vpc.public_subnets
     availability_zones     = module.vpc.azs
-    cluster_name           = module.eks.cluster_name
-    cluster_endpoint       = module.eks.cluster_endpoint
-    cluster_version        = module.eks.cluster_version
-    node_security_group_id = module.eks.node_security_group_id
+    cluster_name           = aws_eks_cluster.this.name
+    cluster_endpoint       = aws_eks_cluster.this.endpoint
+    cluster_version        = aws_eks_cluster.this.version
+    node_security_group_id = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
     db_client_sg_id        = aws_security_group.db_client.id
     lab_role_arn           = data.aws_iam_role.lab.arn
   }
