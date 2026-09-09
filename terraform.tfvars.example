@@ -1,0 +1,6 @@
+# Copie para terraform.tfvars (gitignorado) e ajuste.
+region  = "us-east-1"
+project = "workshop"
+
+cluster_version   = "1.30"
+node_desired_size = 2

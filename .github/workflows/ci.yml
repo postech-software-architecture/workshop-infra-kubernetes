@@ -1,0 +1,86 @@
+name: CI — Terraform
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Um plan por ref; cancela o anterior ao empurrar de novo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimo necessario: ler o repo e comentar o plan no PR.
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: fmt, validate e tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      # -backend=false: valida sintaxe e contrato de outputs sem tocar em state
+      # nem exigir credencial AWS. E o que roda em PR.
+      - name: terraform init (sem backend)
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          soft_fail: true # W1: reporta sem bloquear. Vira bloqueante na W6.
+
+  # O `plan` real exige credencial do Academy (expira ~4h) e so roda quando os
+  # secrets do Environment existirem. Ate lá o job e pulado explicitamente, para
+  # nao dar falso verde — o mesmo erro que o cd.yml do repo da app comete hoje.
+  plan:
+    name: terraform plan (homolog)
+    needs: validate
+    if: github.event_name == 'pull_request' && vars.AWS_CREDENTIALS_READY == 'true'
+    runs-on: ubuntu-latest
+    environment: homolog
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Configurar credenciais (Academy — inclui SESSION_TOKEN)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform plan
+        run: terraform plan -input=false -no-color
+
+      # Fronteira do §1 do plano, verificada pela pipeline: este repo nao pode
+      # declarar recurso de banco. Falha o job se algum aws_db_* aparecer no plan.
+      - name: Verificar fronteira (nenhum aws_db_*)
+        run: |
+          terraform plan -input=false -no-color > plan.txt
+          if grep -qE '^\s*[+~-]?\s*resource "aws_db_' plan.txt; then
+            echo "::error::Este repo nao pode declarar recursos aws_db_* (fronteira do plano, gate G3)"
+            exit 1
+          fi
+          echo "OK: nenhum aws_db_* no plan"
