@@ -39,10 +39,9 @@ jobs:
         run: terraform validate -no-color
 
       - name: tfsec
-        uses: aquasecurity/tfsec-action@v1.0.3
+        uses: docker://aquasec/tfsec:v1.28.14
         with:
-          github_token: ${{ github.token }}
-          soft_fail: true # W1: reporta sem bloquear. Vira bloqueante na W6.
+          args: --soft-fail . # W1: reporta sem bloquear. Vira bloqueante na W6.
 
   # O `plan` real exige credencial do Academy (expira ~4h) e so roda quando os
   # secrets do Environment existirem. Ate lá o job e pulado explicitamente, para
