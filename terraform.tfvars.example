@@ -2,5 +2,5 @@
 region  = "us-east-1"
 project = "workshop"
 
-cluster_version   = "1.30"
+cluster_version   = "1.35"
 node_desired_size = 2

@@ -43,7 +43,7 @@ terraform init -backend=false && terraform validate   # sem credencial
 # com credencial do Academy (AWS Details -> inclui aws_session_token, expira ~4h)
 export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_SESSION_TOKEN=...
 terraform init && terraform plan
-terraform apply    # ~15-20 min
+terraform apply    # medido no Academy: ~16 min
 terraform destroy  # ~10 min — SEMPRE ao final
 ```
 
@@ -58,16 +58,19 @@ kubectl -n kube-system get deploy aws-load-balancer-controller
 
 ## AWS Academy
 
-- `LabRole` e a **unica** role usavel (IAM bloqueado): cluster e nodes a reusam,
-  `create_iam_role = false`
+- `LabRole` e a **unica** role usavel (IAM bloqueado): cluster e nodes a reusam
+- EKS usa recursos `aws_eks_cluster`/`aws_eks_node_group` diretos. O modulo EKS nao
+  e compativel porque tenta consultar `iam:GetRole` da role de sessao `voclabs`
+- A versao Kubernetes fica centralizada em `var.cluster_version` e aplicada igualmente
+  ao control plane e ao node group; o baseline atual e `1.35`
 - Credenciais expiram em **~4h** e incluem `aws_session_token`
 - Sem IRSA — o LB Controller usa as permissoes herdadas pelo node
 - **Sempre `terraform destroy` ao final da sessao**
 
 ## Pendencias
 
-- Backend S3 + lock DynamoDB: comentado em `versions.tf` ate o spike da W0 confirmar
-  que o Academy permite. Fallback: `contracts/outputs.json` como artifact (ADR-005)
+- Backend S3 + lock DynamoDB: permitidos pelo spike da W0; falta criar os recursos
+  definitivos e habilitar o bloco em `versions.tf`
 - Anexo do `db_client_sg_id` aos nodes: W3 (ver nota no fim do `main.tf`)
 - `plan` real na CI: depende dos secrets do Environment (`vars.AWS_CREDENTIALS_READY`)
 

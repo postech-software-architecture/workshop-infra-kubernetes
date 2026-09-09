@@ -17,7 +17,8 @@ terraform {
   }
 
   # Backend S3 + lock DynamoDB: criado UMA vez, fora dos 4 states (ver docs/backend.md).
-  # Comentado ate o spike da W0 confirmar que o Academy permite S3+DynamoDB.
+  # O spike da W0 confirmou suporte no Academy. Permanece comentado ate o bootstrap
+  # dos recursos definitivos e a publicacao dos nomes no ADR-005.
   # backend "s3" {
   #   bucket         = "soat-tc3-tfstate"
   #   key            = "cluster/terraform.tfstate"

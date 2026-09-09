@@ -13,7 +13,7 @@ variable "project" {
 variable "cluster_version" {
   description = "Versao do control plane do EKS"
   type        = string
-  default     = "1.30"
+  default     = "1.35"
 }
 
 variable "node_instance_types" {

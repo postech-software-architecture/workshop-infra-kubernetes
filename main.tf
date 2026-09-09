@@ -45,53 +45,49 @@ module "vpc" {
 }
 
 # --- Cluster EKS ---
-module "eks" {
-  source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.24"
+# O modulo terraform-aws-modules/eks consulta iam:GetRole para descobrir a role
+# emissora da sessao STS (voclabs). A policy Pvoclabs2 do Academy nega essa
+# introspeccao explicitamente. Recursos AWS diretos evitam a chamada e preservam
+# a implementacao ja validada no workshop-service-fase1.
+resource "aws_eks_cluster" "this" {
+  name     = "${var.project}-eks"
+  version  = var.cluster_version
+  role_arn = data.aws_iam_role.lab.arn
 
-  cluster_name    = "${var.project}-eks"
-  cluster_version = var.cluster_version
-
-  vpc_id     = module.vpc.vpc_id
-  subnet_ids = module.vpc.private_subnets
-
-  cluster_endpoint_public_access = true
-
-  # Academy: nao criar IAM role do cluster — reusar a LabRole.
-  create_iam_role = false
-  iam_role_arn    = data.aws_iam_role.lab.arn
-
-  authentication_mode                      = "API_AND_CONFIG_MAP"
-  enable_cluster_creator_admin_permissions = false
-
-  access_entries = {
-    lab = {
-      principal_arn = data.aws_iam_role.lab.arn
-      policy_associations = {
-        admin = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = {
-            type = "cluster"
-          }
-        }
-      }
-    }
+  vpc_config {
+    subnet_ids              = concat(module.vpc.private_subnets, module.vpc.public_subnets)
+    endpoint_public_access  = true
+    endpoint_private_access = true
   }
 
-  eks_managed_node_groups = {
-    default = {
-      instance_types = var.node_instance_types
-      min_size       = var.node_min_size
-      max_size       = var.node_max_size
-      desired_size   = var.node_desired_size
-
-      # Academy: nodes tambem reusam a LabRole.
-      create_iam_role = false
-      iam_role_arn    = data.aws_iam_role.lab.arn
-    }
+  access_config {
+    authentication_mode                         = "API"
+    bootstrap_cluster_creator_admin_permissions = true
   }
 
   tags = { Project = var.project }
+
+  depends_on = [module.vpc]
+}
+
+resource "aws_eks_node_group" "default" {
+  cluster_name    = aws_eks_cluster.this.name
+  node_group_name = "default"
+  node_role_arn   = data.aws_iam_role.lab.arn
+  subnet_ids      = module.vpc.private_subnets
+  version         = var.cluster_version
+
+  scaling_config {
+    desired_size = var.node_desired_size
+    min_size     = var.node_min_size
+    max_size     = var.node_max_size
+  }
+
+  instance_types = var.node_instance_types
+
+  tags = { Project = var.project }
+
+  depends_on = [aws_eks_cluster.this]
 }
 
 # --- metrics-server (o HPA da aplicacao le CPU daqui) ---
@@ -106,7 +102,7 @@ resource "helm_release" "metrics_server" {
     value = "--kubelet-insecure-tls"
   }
 
-  depends_on = [module.eks]
+  depends_on = [aws_eks_node_group.default]
 }
 
 # --- AWS Load Balancer Controller ---
@@ -126,7 +122,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   set {
     name  = "clusterName"
-    value = module.eks.cluster_name
+    value = aws_eks_cluster.this.name
   }
 
   set {
@@ -149,7 +145,7 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = "aws-load-balancer-controller"
   }
 
-  depends_on = [module.eks, helm_release.metrics_server]
+  depends_on = [aws_eks_node_group.default, helm_release.metrics_server]
 }
 
 # --- Security group de CLIENTE do banco ---
@@ -173,8 +169,9 @@ resource "aws_security_group" "db_client" {
 }
 
 # NOTA (W3): o SG de cliente precisa estar anexado aos nodes para os pods o herdarem.
-# O modulo EKS ja permite isso via `node_security_group_additional_rules`, mas anexar um
-# SG extra ao node group exige `vpc_security_group_ids` no launch template — mudanca que
+# Anexar um SG extra ao node group exige `vpc_security_group_ids` em um launch
+# template — mudanca que
 # recria os nodes. Fica para a W3, junto com o ingress do lado do banco, para nao recriar
-# o cluster duas vezes. Alternativa avaliada: usar direto `module.eks.node_security_group_id`
-# como cliente autorizado (output abaixo), dispensando este SG. A decisao vai no ADR-005.
+# o cluster duas vezes. Alternativa avaliada: usar diretamente o security group primario
+# do cluster como cliente autorizado (output abaixo), dispensando este SG. A decisao vai
+# no ADR-005.
