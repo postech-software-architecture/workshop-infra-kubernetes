@@ -47,11 +47,11 @@ jobs:
   # secrets do Environment existirem. Ate lá o job e pulado explicitamente, para
   # nao dar falso verde — o mesmo erro que o cd.yml do repo da app comete hoje.
   plan:
-    name: terraform plan (homolog)
+    name: terraform plan (prod)
     needs: validate
     if: github.event_name == 'pull_request' && vars.AWS_CREDENTIALS_READY == 'true'
     runs-on: ubuntu-latest
-    environment: homolog
+    environment: prod
     steps:
       - uses: actions/checkout@v4
 
