@@ -1,0 +1,84 @@
+name: Terraform — Apply EKS
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Digite APLICAR-PROD para confirmar
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-cluster-prod
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  TF_IN_AUTOMATION: true
+
+jobs:
+  apply:
+    name: terraform apply (prod)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Exigir confirmacao
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: test "$CONFIRMATION" = 'APLICAR-PROD'
+
+      - name: Configurar credenciais AWS Academy
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Validar sessao e backend
+        run: |
+          aws sts get-caller-identity >/dev/null
+          aws s3api head-bucket --bucket soat-tc3-tfstate-mateus-paz
+          test "$(aws dynamodb describe-table \
+            --table-name soat-tc3-tflock \
+            --query 'Table.TableStatus' --output text)" = 'ACTIVE'
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Verificar fronteira
+        run: |
+          terraform show -json tfplan > tfplan.json
+          test "$(jq '[.resource_changes[]? | select(.type | startswith("aws_db_"))] | length' tfplan.json)" = '0'
+
+      - name: Exibir plano
+        run: terraform show -no-color tfplan
+
+      - name: Terraform apply
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Publicar outputs para o spike
+        run: |
+          {
+            echo '## Outputs para o spike VPC Link'
+            echo
+            echo "cluster_name=$(terraform output -raw cluster_name)"
+            echo "vpc_id=$(terraform output -raw vpc_id)"
+            echo "private_subnet_ids=$(terraform output -json private_subnet_ids | jq -r 'join(",")')"
+          } >> "$GITHUB_STEP_SUMMARY"

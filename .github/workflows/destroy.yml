@@ -1,0 +1,128 @@
+name: Terraform — Destroy EKS
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Digite DESTRUIR-PROD para confirmar
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-cluster-prod
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  TF_IN_AUTOMATION: true
+
+jobs:
+  destroy:
+    name: terraform destroy (prod)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Exigir confirmacao
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: test "$CONFIRMATION" = 'DESTRUIR-PROD'
+
+      - name: Configurar credenciais AWS Academy
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+
+      - name: Validar sessao e backend
+        run: |
+          aws sts get-caller-identity >/dev/null
+          aws s3api head-bucket --bucket soat-tc3-tfstate-mateus-paz
+          test "$(aws dynamodb describe-table \
+            --table-name soat-tc3-tflock \
+            --query 'Table.TableStatus' --output text)" = 'ACTIVE'
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Validar ordem de destroy entre states
+        run: |
+          DB_CLIENT_SG_ID="$(terraform output -raw db_client_sg_id 2>/dev/null || true)"
+          if [ -n "$DB_CLIENT_SG_ID" ]; then
+            REFERENCES="$(aws ec2 describe-security-groups \
+              --filters "Name=ip-permission.group-id,Values=$DB_CLIENT_SG_ID" \
+              --query 'length(SecurityGroups)' --output text)"
+            if [ "$REFERENCES" != '0' ]; then
+              echo "::error::O security group $DB_CLIENT_SG_ID ainda e referenciado por outro state. Destrua database/serverless antes do cluster."
+              exit 1
+            fi
+          fi
+
+      - name: Remover load balancers externos ao state
+        run: |
+          CLUSTER_NAME="$(terraform output -raw cluster_name 2>/dev/null || true)"
+          if [ -n "$CLUSTER_NAME" ]; then
+            aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+            kubectl delete ingress --all --all-namespaces --ignore-not-found=true
+            kubectl get service --all-namespaces -o json | jq -r \
+              '.items[] | select(.spec.type == "LoadBalancer") | [.metadata.namespace, .metadata.name] | @tsv' | \
+              while IFS=$'\t' read -r namespace service; do
+                kubectl delete service "$service" --namespace "$namespace" --ignore-not-found=true
+              done
+          fi
+
+      - name: Aguardar limpeza dos load balancers
+        run: |
+          VPC_ID="$(terraform output -raw vpc_id 2>/dev/null || true)"
+          [ -z "$VPC_ID" ] && exit 0
+          for attempt in {1..30}; do
+            COUNT="$(aws elbv2 describe-load-balancers \
+              --query "length(LoadBalancers[?VpcId=='$VPC_ID'])" --output text)"
+            [ "$COUNT" = '0' ] && exit 0
+            echo "Aguardando remocao de $COUNT load balancer(s) da VPC $VPC_ID: tentativa $attempt/30"
+            sleep 10
+          done
+          echo "::error::Ainda existem load balancers na conta; interrompendo antes do destroy."
+          exit 1
+
+      - name: Terraform plan destroy
+        run: terraform plan -destroy -input=false -out=destroy.tfplan
+
+      - name: Verificar fronteira do destroy
+        run: |
+          terraform show -json destroy.tfplan > destroy.tfplan.json
+          test "$(jq '[.resource_changes[]? | select(.type | startswith("aws_db_"))] | length' destroy.tfplan.json)" = '0'
+
+      - name: Exibir plano de destroy
+        run: terraform show -no-color destroy.tfplan
+
+      - name: Terraform destroy
+        run: terraform apply -input=false -auto-approve destroy.tfplan
+
+      - name: Confirmar preservacao do backend
+        run: |
+          aws s3api head-object \
+            --bucket soat-tc3-tfstate-mateus-paz \
+            --key cluster/terraform.tfstate
+          test "$(aws dynamodb describe-table \
+            --table-name soat-tc3-tflock \
+            --query 'Table.TableStatus' --output text)" = 'ACTIVE'
