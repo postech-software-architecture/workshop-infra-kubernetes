@@ -16,14 +16,13 @@ terraform {
     }
   }
 
-  # Backend S3 + lock DynamoDB: criado UMA vez, fora dos 4 states (ver docs/backend.md).
-  # O spike da W0 confirmou suporte no Academy. Permanece comentado ate o bootstrap
-  # dos recursos definitivos e a publicacao dos nomes no ADR-005.
-  # backend "s3" {
-  #   bucket         = "soat-tc3-tfstate"
-  #   key            = "cluster/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   dynamodb_table = "soat-tc3-tflock"
-  #   encrypt        = true
-  # }
+  # Bootstrap criado fora deste state. Assim o destroy do EKS preserva a memoria
+  # necessaria para execucoes futuras (ver docs/backend.md).
+  backend "s3" {
+    bucket         = "soat-tc3-tfstate-mateus-paz"
+    key            = "cluster/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "soat-tc3-tflock"
+    encrypt        = true
+  }
 }

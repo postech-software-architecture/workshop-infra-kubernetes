@@ -52,6 +52,9 @@ jobs:
     if: github.event_name == 'pull_request' && vars.AWS_CREDENTIALS_READY == 'true'
     runs-on: ubuntu-latest
     environment: prod
+    concurrency:
+      group: terraform-cluster-prod
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 

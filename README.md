@@ -56,6 +56,10 @@ kubectl -n kube-system get deploy metrics-server     # 1/1
 kubectl -n kube-system get deploy aws-load-balancer-controller
 ```
 
+O backend remoto e os workflows manuais de apply/destroy estao documentados em
+[docs/backend.md](docs/backend.md). O bucket e a tabela de lock sao preservados
+quando o EKS e destruido.
+
 ## AWS Academy
 
 - `LabRole` e a **unica** role usavel (IAM bloqueado): cluster e nodes a reusam
@@ -69,8 +73,6 @@ kubectl -n kube-system get deploy aws-load-balancer-controller
 
 ## Pendencias
 
-- Backend S3 + lock DynamoDB: permitidos pelo spike da W0; falta criar os recursos
-  definitivos e habilitar o bloco em `versions.tf`
 - Anexo do `db_client_sg_id` aos nodes: W3 (ver nota no fim do `main.tf`)
 - `plan` real na CI: depende dos secrets do Environment (`vars.AWS_CREDENTIALS_READY`)
 
