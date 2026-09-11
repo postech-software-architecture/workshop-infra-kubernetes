@@ -34,5 +34,6 @@ simultaneas no state.
 
 Se uma execucao for interrompida, nao apague bucket, tabela ou lock manualmente.
 Primeiro confirme que nao ha outro workflow em andamento. Depois execute
-terraform plan para reconciliar state e AWS. Use uma versao anterior do objeto
-S3 somente quando houver evidencia de corrupcao do state.
+terraform plan, revise o resultado e execute terraform apply para concluir a
+reconciliacao entre state e AWS. Use uma versao anterior do objeto S3 somente
+quando houver evidencia de corrupcao do state.

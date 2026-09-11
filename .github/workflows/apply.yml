@@ -22,10 +22,13 @@ env:
 jobs:
   apply:
     name: terraform apply (prod)
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: prod
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Exigir confirmacao
         env:
