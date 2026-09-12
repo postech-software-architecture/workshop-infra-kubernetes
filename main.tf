@@ -111,8 +111,9 @@ resource "helm_release" "metrics_server" {
 # em <pending> para sempre.
 #
 # Academy: sem IRSA (nao ha permissao para criar IAM role/OIDC provider). O controller
-# usa as permissoes da LabRole herdadas pelo node — por isso serviceAccount.create=true
-# sem annotation de role.
+# usa as permissoes da LabRole herdadas pelo node. O hop limit do IMDS bloqueia pods
+# na rede comum, portanto somente este controller roda em hostNetwork. Em uma conta
+# AWS convencional, substituir por IRSA/Pod Identity e remover essa excecao.
 resource "helm_release" "aws_load_balancer_controller" {
   name       = "aws-load-balancer-controller"
   namespace  = "kube-system"
@@ -143,6 +144,28 @@ resource "helm_release" "aws_load_balancer_controller" {
   set {
     name  = "serviceAccount.name"
     value = "aws-load-balancer-controller"
+  }
+
+  set {
+    name  = "hostNetwork"
+    value = "true"
+  }
+
+  set {
+    name  = "dnsPolicy"
+    value = "ClusterFirstWithHostNet"
+  }
+
+  # hostNetwork torna as portas do controller exclusivas por node. Uma replica com
+  # Recreate evita colisao durante rollout e tambem funciona com node_min_size = 1.
+  set {
+    name  = "replicaCount"
+    value = "1"
+  }
+
+  set {
+    name  = "updateStrategy.type"
+    value = "Recreate"
   }
 
   depends_on = [aws_eks_node_group.default, helm_release.metrics_server]
