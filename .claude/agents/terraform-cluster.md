@@ -298,6 +298,7 @@ Prova simétrica de que os states estão isolados.
    provar `plan` com zero `aws_db_`.
 4. **W2:** `apply` real; instalar o AWS Load Balancer Controller; validar G2 com `kubectl`.
 5. Criar pipeline de `destroy` **explícita e protegida** (execução manual, confirmação de
-   ambiente, bloqueio antecipado de Lambda/ENI que use `db_client_sg_id`, remove LBs fora
-   do state apenas depois do preflight, `plan -destroy`, aprovação) — o Academy exige.
+   ambiente, bloqueio antecipado de Lambda/ENI que use `db_client_sg_id` e de SG externo
+   que o referencie no ingress, remove LBs fora do state apenas depois do preflight,
+   `plan -destroy`, aprovação) — o Academy exige.
 6. Nunca criar role IAM nova. Nunca emitir output sensível. Nunca afirmar que NAT único é HA.

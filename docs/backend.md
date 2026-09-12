@@ -32,7 +32,9 @@ que ainda nao existe ou use um state sem as protecoes acordadas.
 - Terraform — Destroy EKS: manual, exige DESTRUIR-PROD, remove load balancers
   externos ao state e preserva bucket, tabela e state. Antes de qualquer remocao,
   bloqueia se `db_client_sg_id` ainda estiver associado a Lambda ou ENI externa ao
-  managed node group deste state.
+  managed node group deste state, ou se outro security group ainda o autorizar como
+  origem. Esse ultimo gate comprova que o state do banco, incluindo `workshop-db-sg`,
+  foi destruido antes do cluster.
 
 As tres operacoes usam o mesmo grupo de concorrencia para impedir alteracoes
 simultaneas no state.

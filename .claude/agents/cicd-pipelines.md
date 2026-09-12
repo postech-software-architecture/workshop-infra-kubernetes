@@ -367,7 +367,9 @@ No repo do **banco**, snapshot antes de qualquer ação destrutiva (doc 07) e nu
 `-auto-approve` num plan que contenha `replace`/`destroy` sem revisão explícita. Nos repos
 Terraform, valide versionamento, SSE e as quatro flags de Public Access Block do bucket,
 alem da tabela de lock, antes do init. Antes de destruir o cluster, confirme que nenhum
-consumidor externo (Lambda/ENI) ainda usa o `db_client_sg_id`.
+consumidor externo (Lambda/ENI) ainda usa o `db_client_sg_id` e que nenhum security group
+externo o referencia em uma regra de ingress; a existencia de `workshop-db-sg` prova que
+o database ainda precisa ser destruido primeiro.
 
 ## Padrão: Lambda (W4-A) — versão e alias por ambiente
 

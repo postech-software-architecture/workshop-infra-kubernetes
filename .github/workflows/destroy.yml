@@ -108,6 +108,18 @@ jobs:
             jq -r '.[] | "\(.id) instance=\(.instance // "-") status=\(.status) description=\(.description)"' <<<"$EXTERNAL_ENIS"
           fi
 
+          aws ec2 describe-security-groups \
+            --filters "Name=ip-permission.group-id,Values=$DB_CLIENT_SG_ID" \
+            --query 'SecurityGroups[].{id:GroupId,name:GroupName,vpc:VpcId}' \
+            --output json > db-client-referencing-sgs.json
+
+          EXTERNAL_SECURITY_GROUPS="$(jq --arg sg "$DB_CLIENT_SG_ID" '[.[] | select(.id != $sg)]' db-client-referencing-sgs.json)"
+          EXTERNAL_SECURITY_GROUP_COUNT="$(jq 'length' <<<"$EXTERNAL_SECURITY_GROUPS")"
+          if [ "$EXTERNAL_SECURITY_GROUP_COUNT" != '0' ]; then
+            echo "::error::Security groups externos ainda autorizam $DB_CLIENT_SG_ID como origem. Destrua primeiro o state database (por exemplo, workshop-db-sg)."
+            jq -r '.[] | "\(.id) name=\(.name) vpc=\(.vpc)"' <<<"$EXTERNAL_SECURITY_GROUPS"
+          fi
+
           aws lambda list-functions --query 'Functions[].FunctionName' --output json > lambda-functions.json
           LAMBDA_REFERENCES=0
           while IFS= read -r function_name; do
@@ -121,7 +133,9 @@ jobs:
             fi
           done < <(jq -r '.[]' lambda-functions.json)
 
-          if [ "$EXTERNAL_ENI_COUNT" != '0' ] || [ "$LAMBDA_REFERENCES" != '0' ]; then
+          if [ "$EXTERNAL_ENI_COUNT" != '0' ] || \
+             [ "$EXTERNAL_SECURITY_GROUP_COUNT" != '0' ] || \
+             [ "$LAMBDA_REFERENCES" != '0' ]; then
             exit 1
           fi
 
