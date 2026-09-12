@@ -156,6 +156,18 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = "ClusterFirstWithHostNet"
   }
 
+  # hostNetwork torna as portas do controller exclusivas por node. Uma replica com
+  # Recreate evita colisao durante rollout e tambem funciona com node_min_size = 1.
+  set {
+    name  = "replicaCount"
+    value = "1"
+  }
+
+  set {
+    name  = "updateStrategy.type"
+    value = "Recreate"
+  }
+
   depends_on = [aws_eks_node_group.default, helm_release.metrics_server]
 }
 

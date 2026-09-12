@@ -70,7 +70,8 @@ quando o EKS e destruido.
 - Credenciais expiram em **~4h** e incluem `aws_session_token`
 - Sem IRSA — o LB Controller usa as permissoes herdadas pelo node e roda em
   `hostNetwork` para alcancar o IMDS. Esta e uma excecao do Academy; em uma conta
-  convencional, usar IRSA ou EKS Pod Identity
+  convencional, usar IRSA ou EKS Pod Identity. O fallback usa uma replica e rollout
+  `Recreate` para nao disputar portas do host
 - **Sempre `terraform destroy` ao final da sessao**
 
 ## Pendencias
