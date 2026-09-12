@@ -142,6 +142,13 @@ output "db_client_sg_id" {
 }
 ```
 
+Na W3, os managed nodes usam um launch template com
+`vpc_security_group_ids = [cluster_security_group_id, db_client_sg_id]`. Quando um
+launch template declara security groups, o EKS nao acrescenta o SG do cluster
+automaticamente; por isso ambos devem permanecer explicitos. Adicionar o launch template
+ao node group legado provoca replacement na primeira aplicacao. Versoes posteriores devem
+usar rolling update com `max_unavailable = 1`.
+
 O SG de cliente do banco nasce **aqui**, não no repo de banco — é o que permite ao banco
 autorizar EKS e Lambda sem conhecer nem os nodes nem a Function:
 
