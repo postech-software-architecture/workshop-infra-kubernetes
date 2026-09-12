@@ -142,6 +142,13 @@ output "db_client_sg_id" {
 }
 ```
 
+Na W3, os managed nodes usam um launch template com
+`vpc_security_group_ids = [cluster_security_group_id, db_client_sg_id]`. Quando um
+launch template declara security groups, o EKS nao acrescenta o SG do cluster
+automaticamente; por isso ambos devem permanecer explicitos. Adicionar o launch template
+ao node group legado provoca replacement na primeira aplicacao. Versoes posteriores devem
+usar rolling update com `max_unavailable = 1`.
+
 O SG de cliente do banco nasce **aqui**, não no repo de banco — é o que permite ao banco
 autorizar EKS e Lambda sem conhecer nem os nodes nem a Function:
 
@@ -247,8 +254,9 @@ escolha em ADR — `k8s-workloads` depende de saber qual dos dois vale.
 terraform fmt -check
 terraform init -backend=false
 terraform validate
-terraform plan                # não pode conter NENHUM aws_db_*
-terraform plan -no-color | grep -c 'aws_db_'   # deve ser 0
+# Plan real somente manual, pós-merge na main, com Environment prod.
+terraform plan -out=plan.bin
+terraform show -json plan.bin | jq '[.resource_changes[]? | select(.type | startswith("aws_db_"))] | length' # deve ser 0
 ```
 Tag `phase3-baseline` criada no repo da app **antes** da extração.
 
@@ -290,5 +298,7 @@ Prova simétrica de que os states estão isolados.
    provar `plan` com zero `aws_db_`.
 4. **W2:** `apply` real; instalar o AWS Load Balancer Controller; validar G2 com `kubectl`.
 5. Criar pipeline de `destroy` **explícita e protegida** (execução manual, confirmação de
-   ambiente, remove LBs fora do state antes, `plan -destroy`, aprovação) — o Academy exige.
+   ambiente, bloqueio antecipado de Lambda/ENI que use `db_client_sg_id` e de SG externo
+   que o referencie no ingress, remove LBs fora do state apenas depois do preflight,
+   `plan -destroy`, aprovação) — o Academy exige.
 6. Nunca criar role IAM nova. Nunca emitir output sensível. Nunca afirmar que NAT único é HA.

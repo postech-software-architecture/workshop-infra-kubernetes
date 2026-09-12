@@ -57,6 +57,17 @@ jobs:
         run: |
           aws sts get-caller-identity >/dev/null
           aws s3api head-bucket --bucket soat-tc3-tfstate-mateus-paz
+          test "$(aws s3api get-bucket-versioning \
+            --bucket soat-tc3-tfstate-mateus-paz \
+            --query Status --output text)" = 'Enabled'
+          test "$(aws s3api get-bucket-encryption \
+            --bucket soat-tc3-tfstate-mateus-paz \
+            --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' \
+            --output text)" != 'None'
+          test "$(aws s3api get-public-access-block \
+            --bucket soat-tc3-tfstate-mateus-paz \
+            --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets] | [?@==`true`] | length(@)' \
+            --output text)" = '4'
           test "$(aws dynamodb describe-table \
             --table-name soat-tc3-tflock \
             --query 'Table.TableStatus' --output text)" = 'ACTIVE'
@@ -64,17 +75,68 @@ jobs:
       - name: Terraform init
         run: terraform init -input=false
 
-      - name: Validar ordem de destroy entre states
+      - name: Bloquear consumidores externos do SG do banco
         run: |
           DB_CLIENT_SG_ID="$(terraform output -raw db_client_sg_id 2>/dev/null || true)"
-          if [ -n "$DB_CLIENT_SG_ID" ]; then
-            REFERENCES="$(aws ec2 describe-security-groups \
-              --filters "Name=ip-permission.group-id,Values=$DB_CLIENT_SG_ID" \
-              --query 'length(SecurityGroups)' --output text)"
-            if [ "$REFERENCES" != '0' ]; then
-              echo "::error::O security group $DB_CLIENT_SG_ID ainda e referenciado por outro state. Destrua database/serverless antes do cluster."
-              exit 1
+          [ -z "$DB_CLIENT_SG_ID" ] && exit 0
+
+          CLUSTER_NAME="$(terraform output -raw cluster_name 2>/dev/null || true)"
+          NODE_GROUP_NAME="$(terraform state show aws_eks_node_group.default 2>/dev/null | sed -n 's/^ *node_group_name *= *"\([^"]*\)"/\1/p' | head -n1)"
+          ALLOWED_INSTANCE_IDS='[]'
+
+          if [ -n "$CLUSTER_NAME" ] && [ -n "$NODE_GROUP_NAME" ]; then
+            ASGS="$(aws eks describe-nodegroup \
+              --cluster-name "$CLUSTER_NAME" \
+              --nodegroup-name "$NODE_GROUP_NAME" \
+              --query 'nodegroup.resources.autoScalingGroups[].name' --output text 2>/dev/null || true)"
+            if [ -n "$ASGS" ]; then
+              ALLOWED_INSTANCE_IDS="$(aws autoscaling describe-auto-scaling-groups \
+                --auto-scaling-group-names $ASGS \
+                --query 'AutoScalingGroups[].Instances[].InstanceId' --output json)"
             fi
+          fi
+
+          aws ec2 describe-network-interfaces \
+            --filters "Name=group-id,Values=$DB_CLIENT_SG_ID" \
+            --query 'NetworkInterfaces[].{id:NetworkInterfaceId,instance:Attachment.InstanceId,description:Description,status:Status}' \
+            --output json > db-client-enis.json
+
+          EXTERNAL_ENIS="$(jq --argjson allowed "$ALLOWED_INSTANCE_IDS" '[.[] | .instance as $instance | select($instance == null or (($allowed | index($instance)) == null))]' db-client-enis.json)"
+          EXTERNAL_ENI_COUNT="$(jq 'length' <<<"$EXTERNAL_ENIS")"
+          if [ "$EXTERNAL_ENI_COUNT" != '0' ]; then
+            echo "::error::O $DB_CLIENT_SG_ID ainda esta associado a ENIs externas ao node group. Destrua database/serverless e remova consumidores antes do cluster."
+            jq -r '.[] | "\(.id) instance=\(.instance // "-") status=\(.status) description=\(.description)"' <<<"$EXTERNAL_ENIS"
+          fi
+
+          aws ec2 describe-security-groups \
+            --filters "Name=ip-permission.group-id,Values=$DB_CLIENT_SG_ID" \
+            --query 'SecurityGroups[].{id:GroupId,name:GroupName,vpc:VpcId}' \
+            --output json > db-client-referencing-sgs.json
+
+          EXTERNAL_SECURITY_GROUPS="$(jq --arg sg "$DB_CLIENT_SG_ID" '[.[] | select(.id != $sg)]' db-client-referencing-sgs.json)"
+          EXTERNAL_SECURITY_GROUP_COUNT="$(jq 'length' <<<"$EXTERNAL_SECURITY_GROUPS")"
+          if [ "$EXTERNAL_SECURITY_GROUP_COUNT" != '0' ]; then
+            echo "::error::Security groups externos ainda autorizam $DB_CLIENT_SG_ID como origem. Destrua primeiro o state database (por exemplo, workshop-db-sg)."
+            jq -r '.[] | "\(.id) name=\(.name) vpc=\(.vpc)"' <<<"$EXTERNAL_SECURITY_GROUPS"
+          fi
+
+          aws lambda list-functions --query 'Functions[].FunctionName' --output json > lambda-functions.json
+          LAMBDA_REFERENCES=0
+          while IFS= read -r function_name; do
+            [ -z "$function_name" ] && continue
+            if aws lambda get-function-configuration \
+              --function-name "$function_name" \
+              --query 'VpcConfig.SecurityGroupIds' --output json | \
+              jq -e --arg sg "$DB_CLIENT_SG_ID" 'index($sg) != null' >/dev/null; then
+              echo "::error::Lambda $function_name ainda usa $DB_CLIENT_SG_ID. Destrua o state serverless antes do cluster."
+              LAMBDA_REFERENCES=$((LAMBDA_REFERENCES + 1))
+            fi
+          done < <(jq -r '.[]' lambda-functions.json)
+
+          if [ "$EXTERNAL_ENI_COUNT" != '0' ] || \
+             [ "$EXTERNAL_SECURITY_GROUP_COUNT" != '0' ] || \
+             [ "$LAMBDA_REFERENCES" != '0' ]; then
+            exit 1
           fi
 
       - name: Remover load balancers externos ao state
@@ -110,7 +172,10 @@ jobs:
       - name: Verificar fronteira do destroy
         run: |
           terraform show -json destroy.tfplan > destroy.tfplan.json
-          test "$(jq '[.resource_changes[]? | select(.type | startswith("aws_db_"))] | length' destroy.tfplan.json)" = '0'
+          if [ "$(jq '[.resource_changes[]? | select(.type | startswith("aws_db_"))] | length' destroy.tfplan.json)" != '0' ]; then
+            echo "::error::Este repo nao pode alterar recursos aws_db_* (fronteira do gate G3)."
+            exit 1
+          fi
 
       - name: Exibir plano de destroy
         run: terraform show -no-color destroy.tfplan

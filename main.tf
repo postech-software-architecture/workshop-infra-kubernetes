@@ -70,6 +70,55 @@ resource "aws_eks_cluster" "this" {
   depends_on = [module.vpc]
 }
 
+# --- Security group de CLIENTE do banco ---
+# Este SG nao abre nada: e apenas a identidade que o repo do banco autoriza no ingress
+# 5432. Vive aqui (e nao no repo do banco) porque quem o consome sao os nodes do EKS e a
+# Lambda. Assim o repo do banco nao precisa conhecer os clientes alem deste id.
+resource "aws_security_group" "db_client" {
+  name        = "${var.project}-db-client-sg"
+  description = "Identidade dos clientes do RDS (nodes do EKS e Lambda). Sem regras de ingress."
+  vpc_id      = module.vpc.vpc_id
+
+  egress {
+    description = "Saida para o RDS na porta do Postgres"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  tags = { Project = var.project }
+}
+
+# Quando um managed node group usa security groups em um launch template, o EKS deixa
+# de anexar automaticamente o cluster security group. Por isso a lista abaixo preserva
+# explicitamente o SG primario do cluster e acrescenta o SG que identifica clientes do
+# banco. O primeiro apply desta mudanca substitui o node group legado (sem launch
+# template); alteracoes futuras de versao fazem um rolling update dos nodes.
+resource "aws_launch_template" "eks_nodes" {
+  name_prefix = "${var.project}-eks-node-"
+  description = "Launch template dos managed nodes com identidades EKS e RDS"
+
+  vpc_security_group_ids = [
+    aws_eks_cluster.this.vpc_config[0].cluster_security_group_id,
+    aws_security_group.db_client.id,
+  ]
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name    = "${var.project}-eks-node"
+      Project = var.project
+    }
+  }
+
+  tags = { Project = var.project }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 resource "aws_eks_node_group" "default" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "default"
@@ -84,6 +133,15 @@ resource "aws_eks_node_group" "default" {
   }
 
   instance_types = var.node_instance_types
+
+  launch_template {
+    id      = aws_launch_template.eks_nodes.id
+    version = tostring(aws_launch_template.eks_nodes.latest_version)
+  }
+
+  update_config {
+    max_unavailable = 1
+  }
 
   tags = { Project = var.project }
 
@@ -170,31 +228,3 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   depends_on = [aws_eks_node_group.default, helm_release.metrics_server]
 }
-
-# --- Security group de CLIENTE do banco ---
-# Este SG nao abre nada: e apenas a identidade que o repo do banco autoriza no ingress
-# 5432. Vive aqui (e nao no repo do banco) porque quem o consome sao os nodes do EKS, e
-# assim o repo do banco nao precisa conhecer nada do cluster alem deste id.
-resource "aws_security_group" "db_client" {
-  name        = "${var.project}-db-client-sg"
-  description = "Identidade dos clientes do RDS (nodes do EKS e Lambda). Sem regras de ingress."
-  vpc_id      = module.vpc.vpc_id
-
-  egress {
-    description = "Saida para o RDS na porta do Postgres"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
-  }
-
-  tags = { Project = var.project }
-}
-
-# NOTA (W3): o SG de cliente precisa estar anexado aos nodes para os pods o herdarem.
-# Anexar um SG extra ao node group exige `vpc_security_group_ids` em um launch
-# template — mudanca que
-# recria os nodes. Fica para a W3, junto com o ingress do lado do banco, para nao recriar
-# o cluster duas vezes. Alternativa avaliada: usar diretamente o security group primario
-# do cluster como cliente autorizado (output abaixo), dispensando este SG. A decisao vai
-# no ADR-005.

@@ -61,7 +61,7 @@ output "cluster_version" {
 }
 
 output "node_security_group_id" {
-  description = "SG primario do cluster, tambem anexado aos nodes gerenciados. Alternativa direta ao db_client_sg_id (ver ADR-005)."
+  description = "SG primario do cluster, preservado explicitamente no launch template dos nodes."
   value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
 }
 
@@ -69,7 +69,8 @@ output "node_security_group_id" {
 output "db_client_sg_id" {
   description = <<-DESC
     SG de identidade dos clientes do RDS. O repo workshop-infra-database autoriza
-    ESTE id no ingress 5432, sem conhecer nada mais do cluster.
+    ESTE id no ingress 5432, sem conhecer nada mais do cluster. O launch template
+    dos managed nodes anexa este SG junto ao SG primario do cluster.
   DESC
   value       = aws_security_group.db_client.id
 }

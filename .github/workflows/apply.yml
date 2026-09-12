@@ -7,6 +7,10 @@ on:
         description: Digite APLICAR-PROD para confirmar
         required: true
         type: string
+      node_group_replacement_confirmation:
+        description: Se o plan substituir o node group, digite SUBSTITUIR-NODE-GROUP-COM-DOWNTIME-E-CUSTO
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -52,6 +56,17 @@ jobs:
         run: |
           aws sts get-caller-identity >/dev/null
           aws s3api head-bucket --bucket soat-tc3-tfstate-mateus-paz
+          test "$(aws s3api get-bucket-versioning \
+            --bucket soat-tc3-tfstate-mateus-paz \
+            --query Status --output text)" = 'Enabled'
+          test "$(aws s3api get-bucket-encryption \
+            --bucket soat-tc3-tfstate-mateus-paz \
+            --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' \
+            --output text)" != 'None'
+          test "$(aws s3api get-public-access-block \
+            --bucket soat-tc3-tfstate-mateus-paz \
+            --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets] | [?@==`true`] | length(@)' \
+            --output text)" = '4'
           test "$(aws dynamodb describe-table \
             --table-name soat-tc3-tflock \
             --query 'Table.TableStatus' --output text)" = 'ACTIVE'
@@ -65,7 +80,40 @@ jobs:
       - name: Verificar fronteira
         run: |
           terraform show -json tfplan > tfplan.json
-          test "$(jq '[.resource_changes[]? | select(.type | startswith("aws_db_"))] | length' tfplan.json)" = '0'
+          if [ "$(jq '[.resource_changes[]? | select(.type | startswith("aws_db_"))] | length' tfplan.json)" != '0' ]; then
+            echo "::error::Este repo nao pode alterar recursos aws_db_* (fronteira do gate G3)."
+            exit 1
+          fi
+
+      - name: Bloquear deletes e replacements nao autorizados
+        env:
+          NODE_GROUP_REPLACEMENT_CONFIRMATION: ${{ inputs.node_group_replacement_confirmation }}
+        run: |
+          DESTRUCTIVE_COUNT="$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' tfplan.json)"
+          [ "$DESTRUCTIVE_COUNT" = '0' ] && {
+            echo "OK: plan sem delete ou replacement; esperado para state vazio."
+            exit 0
+          }
+
+          ALLOWED_COUNT="$(jq '[
+            .resource_changes[]?
+            | select(.address == "aws_eks_node_group.default")
+            | select((.change.actions | index("create")) != null)
+            | select((.change.actions | index("delete")) != null)
+          ] | length' tfplan.json)"
+
+          if [ "$DESTRUCTIVE_COUNT" != '1' ] || [ "$ALLOWED_COUNT" != '1' ]; then
+            echo "::error::Plan contem delete/replacement fora da excecao exclusiva aws_eks_node_group.default."
+            jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | "\(.address): \(.change.actions | join(","))"' tfplan.json
+            exit 1
+          fi
+
+          if [ "$NODE_GROUP_REPLACEMENT_CONFIRMATION" != 'SUBSTITUIR-NODE-GROUP-COM-DOWNTIME-E-CUSTO' ]; then
+            echo "::error::O replacement de aws_eks_node_group.default exige o texto exato no input separado."
+            exit 1
+          fi
+
+          echo "::warning::AUTORIZADO: aws_eks_node_group.default sera substituido. Havera janela sem nodes, indisponibilidade dos workloads e custo temporario de recursos durante a troca."
 
       - name: Exibir plano
         run: terraform show -no-color tfplan
