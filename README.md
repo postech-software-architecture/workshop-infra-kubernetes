@@ -68,7 +68,9 @@ quando o EKS e destruido.
 - A versao Kubernetes fica centralizada em `var.cluster_version` e aplicada igualmente
   ao control plane e ao node group; o baseline atual e `1.35`
 - Credenciais expiram em **~4h** e incluem `aws_session_token`
-- Sem IRSA — o LB Controller usa as permissoes herdadas pelo node
+- Sem IRSA — o LB Controller usa as permissoes herdadas pelo node e roda em
+  `hostNetwork` para alcancar o IMDS. Esta e uma excecao do Academy; em uma conta
+  convencional, usar IRSA ou EKS Pod Identity
 - **Sempre `terraform destroy` ao final da sessao**
 
 ## Pendencias
