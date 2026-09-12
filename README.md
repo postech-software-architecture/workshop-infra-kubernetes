@@ -13,7 +13,9 @@ serverless. Nao contem nenhum recurso de banco de dados.
 | **Contem** | VPC, subnets, NAT, EKS, node group, metrics-server, LB Controller, SG de cliente do banco |
 | **Nao contem** | Qualquer `aws_db_*` (vive em [workshop-infra-database](https://github.com/postech-software-architecture/workshop-infra-database)), manifestos k8s, Lambda/API Gateway |
 
-A CI verifica essa fronteira: o job `plan` falha se algum `aws_db_*` aparecer.
+A CI de PR verifica formato, validade e politicas sem credenciais AWS. O plan real e
+executado somente pelo workflow manual de apply, depois do merge em `main`; nele a
+fronteira e verificada sobre o JSON do plan e falha se algum `aws_db_*` aparecer.
 
 ## Contrato de outputs
 
@@ -86,6 +88,14 @@ aws_eks_cluster.this e aws_security_group.db_client: sem replacement no ambiente
 zero recursos aws_db_*
 ```
 
+O workflow `Terraform — Apply EKS` bloqueia qualquer delete ou replacement por padrao.
+A unica excecao e a substituicao isolada de `aws_eks_node_group.default`, quando o state
+legado ainda possui o node group sem launch template. Para autoriza-la, alem de
+`APLICAR-PROD`, preencha o input separado com o texto exato
+`SUBSTITUIR-NODE-GROUP-COM-DOWNTIME-E-CUSTO`. Essa opcao implica janela sem nodes,
+indisponibilidade dos workloads e possivel custo temporario durante a troca. Com state
+vazio, deixe esse segundo input em branco: o plan esperado contem apenas criacoes.
+
 O backend remoto e os workflows manuais de apply/destroy estao documentados em
 [docs/backend.md](docs/backend.md). O bucket e a tabela de lock sao preservados
 quando o EKS e destruido.
@@ -108,7 +118,8 @@ quando o EKS e destruido.
 
 - Confirmar no `terraform plan` real se o node group sera criado (state vazio) ou
   substituido (ambiente legado) antes do apply
-- `plan` real na CI: depende dos secrets do Environment (`vars.AWS_CREDENTIALS_READY`)
+- Executar o plan real somente na `main`, pelo workflow manual protegido pelo Environment
+  `prod`; PRs nunca recebem credenciais AWS
 
 ## Agentes
 

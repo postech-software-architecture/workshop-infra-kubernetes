@@ -303,61 +303,50 @@ Notas de decisão embutidas acima, todas deliberadas:
   comentado como está hoje na linha 24 do `cd.yml`.
 - **`cancel-in-progress: false`** no deploy, ao contrário da CI.
 
-## Padrão: Terraform CD — plan automático, apply com gate, destroy manual
+## Padrão: Terraform CD — validação de PR sem secrets, plan/apply com gate, destroy manual
 
 Três workflows separados por repo de infra. A separação é o controle: um `destroy` só roda se
 alguém abrir o workflow certo de propósito.
 
 ```yaml
-# terraform-plan.yml — automático em PR
-on: { pull_request: { branches: [main] } }
-permissions: { contents: read, pull-requests: write }
+# terraform-ci.yml — PR sem credenciais e sem executar codigo da branch contra a AWS
+on: { pull_request: { branches: [main] }, push: { branches: [main] } }
+permissions: { contents: read }
 jobs:
-  plan:
-    runs-on: ubuntu-latest
-    environment: homolog          # só para pegar as credenciais
+  validate:
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: us-east-1
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_version: 1.9.8 }
-      - run: terraform init
-      - run: terraform plan -out=plan.bin -no-color | tee plan.txt
-      - name: Guarda de separação de states
-        run: |
-          # Cluster não cria banco; banco não cria cluster (G3).
-          ! grep -qE '^\s*# aws_db_(instance|subnet_group)\.' plan.txt || { echo "::error::aws_db_* no plan do cluster"; exit 1; }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: plan.bin
-          retention-days: 30      # o plan pode conter dado sensível: retenção curta e revisada
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate -no-color
+      # Acrescente scanners/politicas estaticas aqui. Nunca configure secrets AWS em PR.
 ```
 
 ```yaml
-# terraform-apply.yml — gate de aprovação obrigatório
-on: { workflow_dispatch: { inputs: { ambiente: { required: true, type: choice, options: [homolog, prod] } } } }
+# terraform-apply.yml — plan real e apply, manual depois do merge
+on: { workflow_dispatch: { inputs: { confirmation: { required: true, type: string } } } }
 permissions: { contents: read }
 jobs:
   apply:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 40           # EKS leva ~15-20 min
-    environment: ${{ inputs.ambiente }}   # 'prod' exige aprovação → é o que o G6 filma bloqueado
+    environment: prod             # aprovação obrigatória; secrets nunca chegam ao PR
     concurrency:
-      group: tf-apply-${{ inputs.ambiente }}
+      group: terraform-cluster-prod
       cancel-in-progress: false   # NUNCA cancele um apply em andamento
     steps:
       - run: aws sts get-caller-identity   # credencial fresca antes dos 20 min de EKS
-      - run: terraform apply -auto-approve   # sobre o plan aprovado
-      - name: Outputs sanitizados como artifact
+      - run: terraform plan -out=plan.bin
+      - run: terraform show -json plan.bin > plan.json
+      - name: Guarda de separação de states
         run: |
-          terraform output -json | jq 'with_entries(select(.value.sensitive == false))' > contracts/outputs.json
-          echo "::add-mask::$(terraform output -raw db_password 2>/dev/null || echo '')"
+          test "$(jq '[.resource_changes[]? | select(.type | startswith("aws_db_"))] | length' plan.json)" = 0
+      # Antes do apply, bloqueie ações que contenham delete no JSON. Exceções precisam
+      # ser por endereço, ação e confirmação textual separada — nunca por grep do HCL.
+      - run: terraform apply -auto-approve plan.bin
 ```
 
 ```yaml
@@ -375,7 +364,10 @@ jobs:
 ```
 
 No repo do **banco**, snapshot antes de qualquer ação destrutiva (doc 07) e nunca
-`-auto-approve` num plan que contenha `replace`/`destroy` sem revisão explícita.
+`-auto-approve` num plan que contenha `replace`/`destroy` sem revisão explícita. Nos repos
+Terraform, valide versionamento, SSE e as quatro flags de Public Access Block do bucket,
+alem da tabela de lock, antes do init. Antes de destruir o cluster, confirme que nenhum
+consumidor externo (Lambda/ENI) ainda usa o `db_client_sg_id`.
 
 ## Padrão: Lambda (W4-A) — versão e alias por ambiente
 
