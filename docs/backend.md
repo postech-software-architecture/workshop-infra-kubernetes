@@ -15,17 +15,26 @@ O bucket e a tabela sao criados uma vez, fora deste state. Configuracao obrigato
 - versionamento e criptografia SSE-S3 ativos;
 - tabela DynamoDB em modo on-demand e estado ACTIVE.
 
-O workflow de apply verifica os dois recursos antes de executar terraform init.
-Ele nao tenta cria-los, evitando que o Terraform dependa de um backend que ainda
-nao existe.
+Os workflows de apply e destroy verificam, antes do `terraform init`, que o bucket
+existe, tem versionamento `Enabled`, criptografia server-side e as quatro flags do
+Block Public Access ativas. Tambem exigem a tabela DynamoDB em estado `ACTIVE`.
+Eles nao tentam criar esses recursos, evitando que o Terraform dependa de um backend
+que ainda nao existe ou use um state sem as protecoes acordadas.
 
 ## Operacao
 
-- CI — Terraform: valida em todo push/PR e executa plan real em PR quando
-  AWS_CREDENTIALS_READY=true;
-- Terraform — Apply EKS: manual, exige APLICAR-PROD e aprovacao do Environment;
+- CI — Terraform: em todo push/PR executa somente fmt, validate e politicas, sem
+  credenciais AWS e sem acesso ao backend;
+- Terraform — Apply EKS: manual, somente na `main`, exige APLICAR-PROD e aprovacao do
+  Environment. O mesmo run gera o plan, valida sua fronteira pelo JSON e bloqueia delete
+  ou replacement. A unica excecao e o replacement isolado do node group, com o input
+  separado `SUBSTITUIR-NODE-GROUP-COM-DOWNTIME-E-CUSTO`;
 - Terraform — Destroy EKS: manual, exige DESTRUIR-PROD, remove load balancers
-  externos ao state e preserva bucket, tabela e state.
+  externos ao state e preserva bucket, tabela e state. Antes de qualquer remocao,
+  bloqueia se `db_client_sg_id` ainda estiver associado a Lambda ou ENI externa ao
+  managed node group deste state, ou se outro security group ainda o autorizar como
+  origem. Esse ultimo gate comprova que o state do banco, incluindo `workshop-db-sg`,
+  foi destruido antes do cluster.
 
 As tres operacoes usam o mesmo grupo de concorrencia para impedir alteracoes
 simultaneas no state.
