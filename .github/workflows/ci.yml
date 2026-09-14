@@ -45,7 +45,8 @@ jobs:
           grep -q 'kubernetes_service.*nrdot_otlp_alias' main.tf || grep -q 'name      = "nr-k8s-otel-collector"' main.tf
           grep -q 'new_relic_license_key' main.tf
           grep -q 'memory_limiter' main.tf
-          grep -q 'retry_on_failure' main.tf
+          grep -q 'otlp_http/newrelic' main.tf
+          grep -q 'customSecretName' main.tf
           if grep -RniE 'licenseKey[[:space:]]*=[[:space:]]*"(NRAK-|eyJ)' --include='*.tf' --include='*.yaml' .; then
             echo '::error::Chave New Relic literal detectada no repositorio.'
             exit 1
