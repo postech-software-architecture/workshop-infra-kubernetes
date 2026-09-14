@@ -269,8 +269,8 @@ resource "helm_release" "nrdot_collector" {
   # O chart disponibiliza a chave via Secret referenciado, sem expor o valor no
   # release values. Sem a chave o apply falha explicitamente no precondition.
   values = [yamlencode({
-    cluster          = aws_eks_cluster.this.name
-    customSecretName = "new-relic-license"
+    cluster                = aws_eks_cluster.this.name
+    customSecretName       = "new-relic-license"
     customSecretLicenseKey = "licenseKey"
     images = {
       collector = {
@@ -292,9 +292,9 @@ resource "helm_release" "nrdot_collector" {
           }
           processors = {
             memory_limiter = {
-              check_interval          = "1s"
-              limit_percentage        = 80
-              spike_limit_percentage  = 15
+              check_interval         = "1s"
+              limit_percentage       = 80
+              spike_limit_percentage = 15
             }
             resource_workshop = {
               attributes = [
@@ -317,17 +317,17 @@ resource "helm_release" "nrdot_collector" {
           }
           pipelines = {
             "traces/workshop" = {
-              receivers = ["otlp"]
+              receivers  = ["otlp"]
               processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
               exporters  = ["otlp_http/newrelic"]
             }
             "metrics/workshop" = {
-              receivers = ["otlp"]
+              receivers  = ["otlp"]
               processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
               exporters  = ["otlp_http/newrelic"]
             }
             "logs/workshop" = {
-              receivers = ["otlp"]
+              receivers  = ["otlp"]
               processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
               exporters  = ["otlp_http/newrelic"]
             }
@@ -380,7 +380,7 @@ resource "kubernetes_service" "nrdot_otlp_alias" {
     selector = {
       "app.kubernetes.io/instance" = helm_release.nrdot_collector.name
       "app.kubernetes.io/name"     = "nr-k8s-otel-collector"
-      component                     = "deployment"
+      component                    = "deployment"
     }
 
     port {
