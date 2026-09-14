@@ -284,20 +284,7 @@ resource "helm_release" "nrdot_collector" {
       enabled = true
       configMap = {
         extraConfig = {
-          receivers = {
-            otlp = {
-              protocols = {
-                grpc = {}
-                http = {}
-              }
-            }
-          }
           processors = {
-            memory_limiter = {
-              check_interval         = "1s"
-              limit_percentage       = 80
-              spike_limit_percentage = 15
-            }
             resource_workshop = {
               attributes = [
                 {
