@@ -76,9 +76,3 @@ variable "new_relic_collector_image_tag" {
   type        = string
   default     = "1.19.0"
 }
-
-variable "new_relic_otlp_endpoint" {
-  description = "Endpoint OTLP HTTP do New Relic US, sem o sufixo /v1/*"
-  type        = string
-  default     = "https://otlp.nr-data.net"
-}

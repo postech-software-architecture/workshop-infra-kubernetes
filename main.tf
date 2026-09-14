@@ -315,50 +315,25 @@ resource "helm_release" "nrdot_collector" {
               send_batch_size = 256
             }
           }
-          exporters = {
-            "otlphttp/workshop" = {
-              endpoint = var.new_relic_otlp_endpoint
-              headers = {
-                "api-key" = "$${env:NEW_RELIC_LICENSE_KEY}"
-              }
-              retry_on_failure = {
-                enabled          = true
-                initial_interval = "5s"
-                max_interval     = "30s"
-                max_elapsed_time = "300s"
-              }
-              sending_queue = {
-                enabled    = true
-                queue_size = 512
-              }
-            }
-          }
           pipelines = {
             "traces/workshop" = {
               receivers = ["otlp"]
               processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
-              exporters  = ["otlphttp/workshop"]
+              exporters  = ["otlp_http/newrelic"]
             }
             "metrics/workshop" = {
               receivers = ["otlp"]
               processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
-              exporters  = ["otlphttp/workshop"]
+              exporters  = ["otlp_http/newrelic"]
             }
             "logs/workshop" = {
               receivers = ["otlp"]
               processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
-              exporters  = ["otlphttp/workshop"]
+              exporters  = ["otlp_http/newrelic"]
             }
           }
         }
       }
-      envsFrom = [
-        {
-          secretRef = {
-            name = "new-relic-license"
-          }
-        }
-      ]
     }
     daemonset = {
       enabled = true
@@ -390,4 +365,40 @@ resource "helm_release" "nrdot_collector" {
       error_message = "new_relic_license_key deve ser fornecida pelo secret prod e ter pelo menos 20 caracteres."
     }
   }
+}
+
+# O chart publica o gateway como <release>-gateway. A aplicacao W5 usa o nome
+# estavel nr-k8s-otel-collector; este Service alias evita acoplamento ao sufixo
+# interno do chart e encaminha somente para o Deployment gateway (OTLP).
+resource "kubernetes_service" "nrdot_otlp_alias" {
+  metadata {
+    name      = "nr-k8s-otel-collector"
+    namespace = "newrelic"
+  }
+
+  spec {
+    selector = {
+      "app.kubernetes.io/instance" = helm_release.nrdot_collector.name
+      "app.kubernetes.io/name"     = "nr-k8s-otel-collector"
+      component                     = "deployment"
+    }
+
+    port {
+      name        = "otlp-http"
+      port        = 4318
+      target_port = 4318
+      protocol    = "TCP"
+    }
+
+    port {
+      name        = "otlp-grpc"
+      port        = 4317
+      target_port = 4317
+      protocol    = "TCP"
+    }
+
+    type = "ClusterIP"
+  }
+
+  depends_on = [helm_release.nrdot_collector]
 }

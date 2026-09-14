@@ -80,6 +80,9 @@ kubectl -n newrelic get secret new-relic-license
 ```
 
 O endpoint interno para a aplicacao e `http://nr-k8s-otel-collector.newrelic.svc.cluster.local:4318`.
+Esse nome e um Service alias gerenciado por este Terraform; o chart oficial usa
+internamente um Service com sufixo `-gateway`. A exportacao usa o exporter OTLP
+New Relic nativo do chart, que ja aplica TLS, retry e fila de envio.
 Nao altere o secret manualmente: uma nova chave deve ser aplicada pelo Terraform.
 O destroy remove namespace, secret e collectors junto com o cluster.
 
