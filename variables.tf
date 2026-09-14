@@ -68,7 +68,7 @@ variable "new_relic_license_key" {
 variable "new_relic_collector_chart_version" {
   description = "Versao fixada do chart nr-k8s-otel-collector."
   type        = string
-  default     = "0.13.0"
+  default     = "0.14.2"
 }
 
 variable "new_relic_collector_image_tag" {
