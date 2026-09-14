@@ -251,8 +251,10 @@ resource "kubernetes_secret" "new_relic_license" {
 
   type = "Opaque"
 
-  string_data = {
-    licenseKey = var.new_relic_license_key
+  # O provider kubernetes 2.x aceita o mapa data em base64. O valor continua
+  # vindo exclusivamente do secret sensivel do Environment prod.
+  data = {
+    licenseKey = base64encode(var.new_relic_license_key)
   }
 
   depends_on = [kubernetes_namespace.new_relic]
