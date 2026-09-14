@@ -58,6 +58,31 @@ kubectl -n kube-system get deploy metrics-server     # 1/1
 kubectl -n kube-system get deploy aws-load-balancer-controller
 ```
 
+### W5 — NRDOT no EKS
+
+O apply instala o chart oficial `nr-k8s-otel-collector` da New Relic no namespace
+`newrelic`, usando a imagem NRDOT com versoes fixadas em `variables.tf`. O collector
+recebe OTLP HTTP/gRPC da aplicacao, aplica `memory_limiter`, `batch` e atributos
+`deployment.environment`/`service.name`, e exporta traces, metricas e logs para o
+New Relic US com retry e fila de envio.
+
+Antes de executar o workflow `Terraform — Apply EKS`, crie no Environment `prod` o
+secret `NEW_RELIC_LICENSE_KEY`. O workflow injeta esse valor somente como
+`TF_VAR_new_relic_license_key`; ele nao aparece no Git, nos outputs ou no summary.
+O precondition do Terraform interrompe o apply se o secret estiver ausente ou curto.
+
+Depois do apply, valide:
+
+```bash
+kubectl -n newrelic get deploy,daemonset,pods,svc
+kubectl -n newrelic logs deploy/nr-k8s-otel-collector --since=10m | grep -E 'exporter|error|retry'
+kubectl -n newrelic get secret new-relic-license
+```
+
+O endpoint interno para a aplicacao e `http://nr-k8s-otel-collector.newrelic.svc.cluster.local:4318`.
+Nao altere o secret manualmente: uma nova chave deve ser aplicada pelo Terraform.
+O destroy remove namespace, secret e collectors junto com o cluster.
+
 ### Acesso EKS -> RDS
 
 O launch template dos managed nodes anexa simultaneamente:

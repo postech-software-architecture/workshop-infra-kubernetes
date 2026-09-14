@@ -38,6 +38,18 @@ jobs:
       - name: terraform validate
         run: terraform validate -no-color
 
+      - name: Verificar contrato W5 do collector
+        shell: bash
+        run: |
+          grep -q 'nr-k8s-otel-collector' main.tf
+          grep -q 'new_relic_license_key' main.tf
+          grep -q 'memory_limiter' main.tf
+          grep -q 'retry_on_failure' main.tf
+          if grep -RniE 'licenseKey[[:space:]]*=[[:space:]]*"(NRAK-|eyJ)' --include='*.tf' --include='*.yaml' .; then
+            echo '::error::Chave New Relic literal detectada no repositorio.'
+            exit 1
+          fi
+
       - name: tfsec
         uses: docker://aquasec/tfsec:v1.28.14
         with:

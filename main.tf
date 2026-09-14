@@ -228,3 +228,166 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   depends_on = [aws_eks_node_group.default, helm_release.metrics_server]
 }
+
+# --- NRDOT Collector (W5) ---
+# O chart oficial da New Relic instala a distribuicao NRDOT e seus componentes de
+# descoberta Kubernetes. O license key entra somente por TF_VAR_new_relic_license_key
+# no environment prod; nao existe segredo em values versionados.
+resource "kubernetes_namespace" "new_relic" {
+  metadata {
+    name = "newrelic"
+  }
+
+  depends_on = [aws_eks_node_group.default]
+}
+
+resource "kubernetes_secret" "new_relic_license" {
+  count = var.new_relic_license_key == null ? 0 : 1
+
+  metadata {
+    name      = "new-relic-license"
+    namespace = "newrelic"
+  }
+
+  type = "Opaque"
+
+  string_data = {
+    licenseKey = var.new_relic_license_key
+  }
+
+  depends_on = [kubernetes_namespace.new_relic]
+}
+
+resource "helm_release" "nrdot_collector" {
+  name             = "nr-k8s-otel-collector"
+  namespace        = "newrelic"
+  create_namespace = true
+  repository       = "https://helm-charts.newrelic.com"
+  chart            = "nr-k8s-otel-collector"
+  version          = var.new_relic_collector_chart_version
+
+  # O chart disponibiliza a chave via Secret referenciado, sem expor o valor no
+  # release values. Sem a chave o apply falha explicitamente no precondition.
+  values = [yamlencode({
+    cluster          = aws_eks_cluster.this.name
+    customSecretName = "new-relic-license"
+    customSecretLicenseKey = "licenseKey"
+    images = {
+      collector = {
+        repository = "newrelic/nrdot-collector-k8s"
+        tag        = var.new_relic_collector_image_tag
+      }
+    }
+    deployment = {
+      enabled = true
+      configMap = {
+        extraConfig = {
+          receivers = {
+            otlp = {
+              protocols = {
+                grpc = {}
+                http = {}
+              }
+            }
+          }
+          processors = {
+            memory_limiter = {
+              check_interval          = "1s"
+              limit_percentage        = 80
+              spike_limit_percentage  = 15
+            }
+            resource_workshop = {
+              attributes = [
+                {
+                  key    = "deployment.environment"
+                  value  = "prod"
+                  action = "insert"
+                },
+                {
+                  key    = "service.name"
+                  value  = "workshop-eks"
+                  action = "insert"
+                }
+              ]
+            }
+            batch_workshop = {
+              timeout         = "5s"
+              send_batch_size = 256
+            }
+          }
+          exporters = {
+            "otlphttp/workshop" = {
+              endpoint = var.new_relic_otlp_endpoint
+              headers = {
+                "api-key" = "$${env:NEW_RELIC_LICENSE_KEY}"
+              }
+              retry_on_failure = {
+                enabled          = true
+                initial_interval = "5s"
+                max_interval     = "30s"
+                max_elapsed_time = "300s"
+              }
+              sending_queue = {
+                enabled    = true
+                queue_size = 512
+              }
+            }
+          }
+          pipelines = {
+            "traces/workshop" = {
+              receivers = ["otlp"]
+              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              exporters  = ["otlphttp/workshop"]
+            }
+            "metrics/workshop" = {
+              receivers = ["otlp"]
+              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              exporters  = ["otlphttp/workshop"]
+            }
+            "logs/workshop" = {
+              receivers = ["otlp"]
+              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              exporters  = ["otlphttp/workshop"]
+            }
+          }
+        }
+      }
+      envsFrom = [
+        {
+          secretRef = {
+            name = "new-relic-license"
+          }
+        }
+      ]
+    }
+    daemonset = {
+      enabled = true
+    }
+    receivers = {
+      prometheus = {
+        enabled = true
+      }
+      k8sEvents = {
+        enabled = true
+      }
+      hostmetrics = {
+        enabled = true
+      }
+      kubeletstats = {
+        enabled = true
+      }
+      filelog = {
+        enabled = true
+      }
+    }
+  })]
+
+  depends_on = [kubernetes_secret.new_relic_license, helm_release.aws_load_balancer_controller]
+
+  lifecycle {
+    precondition {
+      condition     = var.new_relic_license_key != null && length(trimspace(var.new_relic_license_key)) >= 20
+      error_message = "new_relic_license_key deve ser fornecida pelo secret prod e ter pelo menos 20 caracteres."
+    }
+  }
+}
