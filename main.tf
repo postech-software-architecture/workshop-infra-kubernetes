@@ -276,7 +276,7 @@ resource "helm_release" "nrdot_collector" {
     customSecretLicenseKey = "licenseKey"
     images = {
       collector = {
-        repository = "newrelic/nrdot-collector-k8s"
+        repository = "newrelic/nrdot-collector"
         tag        = var.new_relic_collector_image_tag
       }
     }
