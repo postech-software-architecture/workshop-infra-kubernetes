@@ -285,7 +285,7 @@ resource "helm_release" "nrdot_collector" {
       configMap = {
         extraConfig = {
           processors = {
-            resource_workshop = {
+            "resource/workshop" = {
               attributes = [
                 {
                   key    = "deployment.environment"
@@ -299,7 +299,7 @@ resource "helm_release" "nrdot_collector" {
                 }
               ]
             }
-            batch_workshop = {
+            "batch/workshop" = {
               timeout         = "5s"
               send_batch_size = 256
             }
@@ -307,17 +307,17 @@ resource "helm_release" "nrdot_collector" {
           pipelines = {
             "traces/workshop" = {
               receivers  = ["otlp"]
-              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              processors = ["memory_limiter", "resource/workshop", "batch/workshop"]
               exporters  = ["otlp_http/newrelic"]
             }
             "metrics/workshop" = {
               receivers  = ["otlp"]
-              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              processors = ["memory_limiter", "resource/workshop", "batch/workshop"]
               exporters  = ["otlp_http/newrelic"]
             }
             "logs/workshop" = {
               receivers  = ["otlp"]
-              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              processors = ["memory_limiter", "resource/workshop", "batch/workshop"]
               exporters  = ["otlp_http/newrelic"]
             }
           }
