@@ -57,3 +57,22 @@ variable "public_subnet_cidrs" {
   type        = list(string)
   default     = ["10.0.101.0/24", "10.0.102.0/24"]
 }
+
+variable "new_relic_license_key" {
+  description = "Chave de ingestao do New Relic. Fornecida pelo secret TF_VAR_new_relic_license_key; nunca versionar."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+variable "new_relic_collector_chart_version" {
+  description = "Versao fixada do chart nr-k8s-otel-collector."
+  type        = string
+  default     = "0.13.0"
+}
+
+variable "new_relic_collector_image_tag" {
+  description = "Versao fixada da imagem NRDOT usada pelo collector."
+  type        = string
+  default     = "1.19.0"
+}

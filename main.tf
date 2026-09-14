@@ -228,3 +228,179 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   depends_on = [aws_eks_node_group.default, helm_release.metrics_server]
 }
+
+# --- NRDOT Collector (W5) ---
+# O chart oficial da New Relic instala a distribuicao NRDOT e seus componentes de
+# descoberta Kubernetes. O license key entra somente por TF_VAR_new_relic_license_key
+# no environment prod; nao existe segredo em values versionados.
+resource "kubernetes_namespace" "new_relic" {
+  metadata {
+    name = "newrelic"
+  }
+
+  depends_on = [aws_eks_node_group.default]
+}
+
+resource "kubernetes_secret" "new_relic_license" {
+  count = var.new_relic_license_key == null ? 0 : 1
+
+  metadata {
+    name      = "new-relic-license"
+    namespace = "newrelic"
+  }
+
+  type = "Opaque"
+
+  # O provider kubernetes 2.x aceita o mapa data em base64. O valor continua
+  # vindo exclusivamente do secret sensivel do Environment prod.
+  data = {
+    licenseKey = base64encode(var.new_relic_license_key)
+  }
+
+  depends_on = [kubernetes_namespace.new_relic]
+}
+
+resource "helm_release" "nrdot_collector" {
+  name             = "nr-k8s-otel-collector"
+  namespace        = "newrelic"
+  create_namespace = true
+  repository       = "https://helm-charts.newrelic.com"
+  chart            = "nr-k8s-otel-collector"
+  version          = var.new_relic_collector_chart_version
+
+  # O chart disponibiliza a chave via Secret referenciado, sem expor o valor no
+  # release values. Sem a chave o apply falha explicitamente no precondition.
+  values = [yamlencode({
+    cluster                = aws_eks_cluster.this.name
+    customSecretName       = "new-relic-license"
+    customSecretLicenseKey = "licenseKey"
+    images = {
+      collector = {
+        repository = "newrelic/nrdot-collector-k8s"
+        tag        = var.new_relic_collector_image_tag
+      }
+    }
+    deployment = {
+      enabled = true
+      configMap = {
+        extraConfig = {
+          receivers = {
+            otlp = {
+              protocols = {
+                grpc = {}
+                http = {}
+              }
+            }
+          }
+          processors = {
+            memory_limiter = {
+              check_interval         = "1s"
+              limit_percentage       = 80
+              spike_limit_percentage = 15
+            }
+            resource_workshop = {
+              attributes = [
+                {
+                  key    = "deployment.environment"
+                  value  = "prod"
+                  action = "insert"
+                },
+                {
+                  key    = "service.name"
+                  value  = "workshop-eks"
+                  action = "insert"
+                }
+              ]
+            }
+            batch_workshop = {
+              timeout         = "5s"
+              send_batch_size = 256
+            }
+          }
+          pipelines = {
+            "traces/workshop" = {
+              receivers  = ["otlp"]
+              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              exporters  = ["otlp_http/newrelic"]
+            }
+            "metrics/workshop" = {
+              receivers  = ["otlp"]
+              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              exporters  = ["otlp_http/newrelic"]
+            }
+            "logs/workshop" = {
+              receivers  = ["otlp"]
+              processors = ["memory_limiter", "resource_workshop", "batch_workshop"]
+              exporters  = ["otlp_http/newrelic"]
+            }
+          }
+        }
+      }
+    }
+    daemonset = {
+      enabled = true
+    }
+    receivers = {
+      prometheus = {
+        enabled = true
+      }
+      k8sEvents = {
+        enabled = true
+      }
+      hostmetrics = {
+        enabled = true
+      }
+      kubeletstats = {
+        enabled = true
+      }
+      filelog = {
+        enabled = true
+      }
+    }
+  })]
+
+  depends_on = [kubernetes_secret.new_relic_license, helm_release.aws_load_balancer_controller]
+
+  lifecycle {
+    precondition {
+      condition     = var.new_relic_license_key != null && length(trimspace(var.new_relic_license_key)) >= 20
+      error_message = "new_relic_license_key deve ser fornecida pelo secret prod e ter pelo menos 20 caracteres."
+    }
+  }
+}
+
+# O chart publica o gateway como <release>-gateway. A aplicacao W5 usa o nome
+# estavel nr-k8s-otel-collector; este Service alias evita acoplamento ao sufixo
+# interno do chart e encaminha somente para o Deployment gateway (OTLP).
+resource "kubernetes_service" "nrdot_otlp_alias" {
+  metadata {
+    name      = "nr-k8s-otel-collector"
+    namespace = "newrelic"
+  }
+
+  spec {
+    selector = {
+      "app.kubernetes.io/instance" = helm_release.nrdot_collector.name
+      "app.kubernetes.io/name"     = "nr-k8s-otel-collector"
+      component                    = "deployment"
+    }
+
+    port {
+      name        = "otlp-http"
+      port        = 4318
+      target_port = 4318
+      protocol    = "TCP"
+    }
+
+    port {
+      name        = "otlp-grpc"
+      port        = 4317
+      target_port = 4317
+      protocol    = "TCP"
+    }
+
+    type = "ClusterIP"
+  }
+
+  depends_on = [helm_release.nrdot_collector]
+}
