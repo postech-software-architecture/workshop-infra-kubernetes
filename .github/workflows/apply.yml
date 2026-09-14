@@ -96,25 +96,38 @@ jobs:
             exit 0
           }
 
-          ALLOWED_COUNT="$(jq '[
+          NODE_GROUP_REPLACEMENT_COUNT="$(jq '[
             .resource_changes[]?
             | select(.address == "aws_eks_node_group.default")
             | select((.change.actions | index("create")) != null)
             | select((.change.actions | index("delete")) != null)
           ] | length' tfplan.json)"
 
-          if [ "$DESTRUCTIVE_COUNT" != '1' ] || [ "$ALLOWED_COUNT" != '1' ]; then
-            echo "::error::Plan contem delete/replacement fora da excecao exclusiva aws_eks_node_group.default."
-            jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | "\(.address): \(.change.actions | join(","))"' tfplan.json
-            exit 1
+          NRDOT_REPLACEMENT_COUNT="$(jq '[
+            .resource_changes[]?
+            | select(.address == "helm_release.nrdot_collector")
+            | select((.change.actions | index("create")) != null)
+            | select((.change.actions | index("delete")) != null)
+          ] | length' tfplan.json)"
+
+          if [ "$DESTRUCTIVE_COUNT" = '1' ] && [ "$NRDOT_REPLACEMENT_COUNT" = '1' ]; then
+            echo "::warning::AUTORIZADO: o release NRDOT com falha sera recriado sem substituir recursos AWS."
+            exit 0
           fi
 
-          if [ "$NODE_GROUP_REPLACEMENT_CONFIRMATION" != 'SUBSTITUIR-NODE-GROUP-COM-DOWNTIME-E-CUSTO' ]; then
-            echo "::error::O replacement de aws_eks_node_group.default exige o texto exato no input separado."
-            exit 1
+          if [ "$DESTRUCTIVE_COUNT" = '1' ] && [ "$NODE_GROUP_REPLACEMENT_COUNT" = '1' ]; then
+            if [ "$NODE_GROUP_REPLACEMENT_CONFIRMATION" != 'SUBSTITUIR-NODE-GROUP-COM-DOWNTIME-E-CUSTO' ]; then
+              echo "::error::O replacement de aws_eks_node_group.default exige o texto exato no input separado."
+              exit 1
+            fi
+
+            echo "::warning::AUTORIZADO: aws_eks_node_group.default sera substituido. Havera janela sem nodes, indisponibilidade dos workloads e custo temporario de recursos durante a troca."
+            exit 0
           fi
 
-          echo "::warning::AUTORIZADO: aws_eks_node_group.default sera substituido. Havera janela sem nodes, indisponibilidade dos workloads e custo temporario de recursos durante a troca."
+          echo "::error::Plan contem delete/replacement fora das excecoes exclusivas permitidas."
+          jq -r '.resource_changes[]? | select(.change.actions | index("delete")) | "\(.address): \(.change.actions | join(","))"' tfplan.json
+          exit 1
 
       - name: Exibir plano
         run: terraform show -no-color tfplan
