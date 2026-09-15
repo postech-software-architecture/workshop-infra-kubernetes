@@ -2,10 +2,14 @@
 
 O state do cluster fica em:
 
-    s3://soat-tc3-tfstate-mateus-paz/cluster/terraform.tfstate
+    s3://<TFSTATE_BUCKET>/cluster/terraform.tfstate
 
-O lock usa a tabela DynamoDB soat-tc3-tflock, com partition key LockID
+O lock usa a tabela DynamoDB <TFSTATE_LOCK_TABLE>, com partition key LockID
 do tipo String. Ambos vivem em us-east-1.
+
+Os dois nomes vem das variables `TFSTATE_BUCKET` e `TFSTATE_LOCK_TABLE` do
+Environment `prod` e sao passados ao `terraform init` por `-backend-config`.
+Trocar de conta AWS e trocar essas duas variables, sem editar codigo.
 
 ## Bootstrap
 

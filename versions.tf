@@ -18,11 +18,12 @@ terraform {
 
   # Bootstrap criado fora deste state. Assim o destroy do EKS preserva a memoria
   # necessaria para execucoes futuras (ver docs/backend.md).
+  # Backend parcial: bucket, region e dynamodb_table chegam por -backend-config
+  # no init, a partir das variables TFSTATE_BUCKET e TFSTATE_LOCK_TABLE do
+  # Environment. Um bloco backend nao aceita interpolacao, entao esta e a unica
+  # forma de nao fixar o nome da conta no codigo.
   backend "s3" {
-    bucket         = "soat-tc3-tfstate-mateus-paz"
-    key            = "cluster/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "soat-tc3-tflock"
-    encrypt        = true
+    key     = "cluster/terraform.tfstate"
+    encrypt = true
   }
 }

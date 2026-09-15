@@ -21,6 +21,8 @@ concurrency:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  TFSTATE_BUCKET: ${{ vars.TFSTATE_BUCKET }}
+  TFSTATE_LOCK_TABLE: ${{ vars.TFSTATE_LOCK_TABLE }}
   TF_IN_AUTOMATION: true
   TF_VAR_new_relic_license_key: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
 
@@ -55,25 +57,31 @@ jobs:
 
       - name: Validar sessao e backend
         run: |
+          test -n "${TFSTATE_BUCKET:-}" || { echo '::error::Variable TFSTATE_BUCKET ausente no Environment prod.' >&2; exit 1; }
+          test -n "${TFSTATE_LOCK_TABLE:-}" || { echo '::error::Variable TFSTATE_LOCK_TABLE ausente no Environment prod.' >&2; exit 1; }
           aws sts get-caller-identity >/dev/null
-          aws s3api head-bucket --bucket soat-tc3-tfstate-mateus-paz
+          aws s3api head-bucket --bucket "${TFSTATE_BUCKET}"
           test "$(aws s3api get-bucket-versioning \
-            --bucket soat-tc3-tfstate-mateus-paz \
+            --bucket "${TFSTATE_BUCKET}" \
             --query Status --output text)" = 'Enabled'
           test "$(aws s3api get-bucket-encryption \
-            --bucket soat-tc3-tfstate-mateus-paz \
+            --bucket "${TFSTATE_BUCKET}" \
             --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' \
             --output text)" != 'None'
           test "$(aws s3api get-public-access-block \
-            --bucket soat-tc3-tfstate-mateus-paz \
+            --bucket "${TFSTATE_BUCKET}" \
             --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets] | [?@==`true`] | length(@)' \
             --output text)" = '4'
           test "$(aws dynamodb describe-table \
-            --table-name soat-tc3-tflock \
+            --table-name "${TFSTATE_LOCK_TABLE}" \
             --query 'Table.TableStatus' --output text)" = 'ACTIVE'
 
       - name: Terraform init
-        run: terraform init -input=false
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${TFSTATE_BUCKET}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TFSTATE_LOCK_TABLE}"
 
       - name: Terraform plan
         run: terraform plan -input=false -out=tfplan
