@@ -104,6 +104,17 @@ resource "aws_launch_template" "eks_nodes" {
     aws_security_group.db_client.id,
   ]
 
+  # O hop limit default do EKS e 1, o que impede qualquer pod fora de
+  # hostNetwork de alcancar o IMDS: o salto extra ate a rede do pod consome o
+  # unico hop disponivel. O collector NRDOT detecta atributos de cloud pelo
+  # IMDS e entra em crashloop sem esse acesso. Hop limit 2 e o valor
+  # recomendado para EKS e mantem IMDSv2 obrigatorio.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
   tag_specifications {
     resource_type = "instance"
     tags = {
@@ -251,10 +262,12 @@ resource "kubernetes_secret" "new_relic_license" {
 
   type = "Opaque"
 
-  # O provider kubernetes 2.x aceita o mapa data em base64. O valor continua
-  # vindo exclusivamente do secret sensivel do Environment prod.
+  # O atributo data ja codifica em base64 ao escrever o Secret, entao o valor
+  # entra em texto puro. Passar base64encode aqui gera codificacao dupla e o
+  # collector envia uma chave invalida, que a New Relic recusa com HTTP 403.
+  # O valor continua vindo exclusivamente do secret sensivel do Environment prod.
   data = {
-    licenseKey = base64encode(var.new_relic_license_key)
+    licenseKey = var.new_relic_license_key
   }
 
   depends_on = [kubernetes_namespace.new_relic]
