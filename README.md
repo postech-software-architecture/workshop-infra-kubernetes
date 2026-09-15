@@ -1,10 +1,53 @@
 # workshop-infra-kubernetes
 
-Infraestrutura Kubernetes da **Fase 3** do Tech Challenge (SOAT): VPC, EKS, node group,
-`metrics-server` e AWS Load Balancer Controller.
+> Infraestrutura **Kubernetes** da **Fase 3** do Tech Challenge (SOAT): VPC, cluster
+> **EKS**, node group, `metrics-server` e **AWS Load Balancer Controller**.
+> Este repositorio **autora o contrato de outputs** consumido pelos repos de banco e
+> serverless. Nao contem nenhum recurso de banco de dados.
 
-Este repositorio **autora o contrato de outputs** consumido pelos repos de banco e
-serverless. Nao contem nenhum recurso de banco de dados.
+---
+
+## Proposito
+
+Provisiona a fundacao de rede e computacao sobre a qual toda a Fase 3 roda. E o
+**primeiro repositorio a ser aplicado** e o **ultimo a ser destruido**, porque os demais
+consomem seus outputs:
+
+| Entrega | Detalhe |
+|---|---|
+| **Rede** | VPC, subnets publicas e privadas, NAT gateway |
+| **Computacao** | Cluster EKS + managed node group com launch template |
+| **Add-ons** | `metrics-server` (habilita o HPA) e AWS Load Balancer Controller |
+| **Observabilidade** | Collector NRDOT (`nr-k8s-otel-collector`) no namespace `newrelic` |
+| **Integracao** | `db_client_sg_id` — identidade de rede que autoriza o acesso EKS → RDS |
+| **Contrato** | `outputs.tf` e a interface publica consumida por banco e serverless |
+
+---
+
+## Tecnologias utilizadas
+
+| Camada | Tecnologia |
+|---|---|
+| IaC | **Terraform >= 1.6**, provider AWS `~> 5.60` |
+| State | Backend **S3** (`cluster/terraform.tfstate`) com lock em **DynamoDB**, criptografado |
+| Computacao | **Amazon EKS** (`aws_eks_cluster` / `aws_eks_node_group` diretos, sem modulo) |
+| Kubernetes | Versao centralizada em `var.cluster_version` — baseline **1.35** |
+| Add-ons | `metrics-server`, AWS Load Balancer Controller, chart `nr-k8s-otel-collector` (New Relic) |
+| Observabilidade | **NRDOT / OpenTelemetry** — OTLP HTTP (4318) e gRPC |
+| CI/CD | GitHub Actions — CI sem credenciais em PR; plan/apply/destroy manuais protegidos por Environment `prod` |
+| Ambiente | **AWS Academy Learner Lab** (`LabRole`, credenciais temporarias ~4h) |
+
+---
+
+## Ordem de execucao na Fase 3
+
+```text
+APPLY:    workshop-infra-kubernetes → workshop-infra-database → workshop-auth-serverless
+DESTROY:  workshop-auth-serverless → workshop-infra-database → workshop-infra-kubernetes
+```
+
+O banco consome a VPC e as subnets deste state; destrui-lo depois do cluster deixa
+recursos orfaos.
 
 ## Fronteira
 
@@ -36,7 +79,7 @@ renomear exige PR coordenado nos dois repos, na mesma janela.
 Nenhum segredo trafega por output. A senha do banco vive em Environment secret,
 consumida igualmente pelo k8s Secret e pela Lambda.
 
-## Rodar
+## Como executar e fazer deploy
 
 ```bash
 terraform fmt -check -recursive
@@ -148,6 +191,40 @@ quando o EKS e destruido.
   substituido (ambiente legado) antes do apply
 - Executar o plan real somente na `main`, pelo workflow manual protegido pelo Environment
   `prod`; PRs nunca recebem credenciais AWS
+
+## Diagrama da arquitetura
+
+<!-- TODO: inserir o diagrama de rede e computacao deste repositorio
+     (VPC, subnets publicas/privadas, NAT, control plane EKS, node group,
+     LB Controller, collector NRDOT e o SG db_client). Sugestao: versionar em docs/. -->
+
+```text
+[ reservado para o diagrama da infraestrutura EKS/VPC deste repositorio ]
+```
+
+---
+
+## APIs — Swagger / Postman
+
+Este repositorio provisiona infraestrutura e **nao expoe API propria**. As APIs que rodam
+sobre este cluster estao especificadas em:
+
+| API | Especificacao |
+|---|---|
+| Workshop Service (API REST) | [`workshop-service-fase1/openapi.yaml`](https://github.com/postech-software-architecture/workshop-service-fase1/blob/main/openapi.yaml) — Swagger UI em `/swagger-ui.html` |
+| Autenticacao por CPF (Lambda) | [`workshop-auth-serverless/docs/openapi-auth.yaml`](https://github.com/postech-software-architecture/workshop-auth-serverless/blob/main/docs/openapi-auth.yaml) |
+
+A borda publica (API Gateway) que expoe estas APIs e provisionada por
+[workshop-auth-serverless](https://github.com/postech-software-architecture/workshop-auth-serverless).
+
+Para inspecionar a API do proprio Kubernetes apos o apply:
+
+```bash
+aws eks update-kubeconfig --name $(terraform output -raw cluster_name) --region us-east-1
+kubectl cluster-info
+```
+
+---
 
 ## Agentes
 
