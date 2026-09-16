@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
 
@@ -39,14 +39,14 @@ jobs:
         run: test "$CONFIRMATION" = 'DESTRUIR-PROD'
 
       - name: Configurar credenciais AWS Academy
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.9.8
           terraform_wrapper: false
@@ -57,25 +57,10 @@ jobs:
           version: v1.35.0
 
       - name: Validar sessao e backend
-        run: |
-          test -n "${TFSTATE_BUCKET:-}" || { echo '::error::Variable TFSTATE_BUCKET ausente no Environment prod.' >&2; exit 1; }
-          test -n "${TFSTATE_LOCK_TABLE:-}" || { echo '::error::Variable TFSTATE_LOCK_TABLE ausente no Environment prod.' >&2; exit 1; }
-          aws sts get-caller-identity >/dev/null
-          aws s3api head-bucket --bucket "${TFSTATE_BUCKET}"
-          test "$(aws s3api get-bucket-versioning \
-            --bucket "${TFSTATE_BUCKET}" \
-            --query Status --output text)" = 'Enabled'
-          test "$(aws s3api get-bucket-encryption \
-            --bucket "${TFSTATE_BUCKET}" \
-            --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm' \
-            --output text)" != 'None'
-          test "$(aws s3api get-public-access-block \
-            --bucket "${TFSTATE_BUCKET}" \
-            --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets] | [?@==`true`] | length(@)' \
-            --output text)" = '4'
-          test "$(aws dynamodb describe-table \
-            --table-name "${TFSTATE_LOCK_TABLE}" \
-            --query 'Table.TableStatus' --output text)" = 'ACTIVE'
+        shell: bash
+        env:
+          TFSTATE_KEY: cluster/terraform.tfstate
+        run: bash .github/scripts/preflight-backend.sh
 
       - name: Terraform init
         run: |
