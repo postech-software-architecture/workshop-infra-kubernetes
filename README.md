@@ -192,15 +192,27 @@ quando o EKS e destruido.
 - Executar o plan real somente na `main`, pelo workflow manual protegido pelo Environment
   `prod`; PRs nunca recebem credenciais AWS
 
-## Diagrama da arquitetura
+## Diagrama de componentes
 
-<!-- TODO: inserir o diagrama de rede e computacao deste repositorio
-     (VPC, subnets publicas/privadas, NAT, control plane EKS, node group,
-     LB Controller, collector NRDOT e o SG db_client). Sugestao: versionar em docs/. -->
+![Diagrama de componentes da infraestrutura Kubernetes](docs/diagrama_componentes_kubernetes.png)
 
-```text
-[ reservado para o diagrama da infraestrutura EKS/VPC deste repositorio ]
-```
+Visao de nuvem, APIs, banco e monitoramento. Fonte editavel:
+[`docs/diagrama_componentes_kubernetes.drawio`](docs/diagrama_componentes_kubernetes.drawio)
+— abra em [app.diagrams.net](https://app.diagrams.net) ou no draw.io desktop.
+
+| Camada | Componentes | Origem |
+|---|---|---|
+| Borda | API Gateway, Lambda de autenticacao | workshop-auth-serverless |
+| Rede | VPC 10.0.0.0/16, subnets publicas e privadas em 2 AZs, NAT gateway | este repo |
+| Computacao | Control plane EKS, managed node group com launch template | este repo |
+| Add-ons | `metrics-server` + HPA, AWS Load Balancer Controller + ALB | este repo |
+| Observabilidade | Collector NRDOT no namespace `newrelic`, export OTLP para o New Relic US | este repo |
+| Banco | RDS PostgreSQL na subnet privada, ingress 5432 autorizado via `db_client_sg` | workshop-infra-database |
+| Operacao | GitHub Actions, state em S3 com lock em DynamoDB | este repo |
+
+Ao alterar o diagrama, edite o `.drawio` e reexporte o PNG
+(**File -> Export as -> PNG**, com *Transparent Background* desmarcado) para que a imagem
+do README acompanhe a fonte.
 
 ---
 
