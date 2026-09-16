@@ -20,3 +20,15 @@ kubeconfig-*.yaml
 # overrides locais
 override.tf
 override.tf.json
+
+# Planos do Terraform: carregam os valores das variaveis sensiveis
+# (chave New Relic, entre outras) e nunca devem ser versionados.
+tfplan
+*.tfplan
+*.bin
+plan.txt
+errored.tfstate
+
+# IDE
+.idea/
+.vscode/
