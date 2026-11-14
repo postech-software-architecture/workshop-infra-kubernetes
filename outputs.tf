@@ -60,6 +60,16 @@ output "cluster_version" {
   value       = aws_eks_cluster.this.version
 }
 
+output "ebs_csi_addon_version" {
+  description = "Versao efetiva do add-on EBS CSI, para registrar/fixar em applies futuros."
+  value       = aws_eks_addon.ebs_csi.addon_version
+}
+
+output "storage_class_name" {
+  description = "StorageClass gp3 criptografada para STORAGE_CLASS da Plataforma Fase 4."
+  value       = kubernetes_storage_class_v1.ebs_gp3.metadata[0].name
+}
+
 output "node_security_group_id" {
   description = "SG primario do cluster, preservado explicitamente no launch template dos nodes."
   value       = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id

@@ -18,6 +18,7 @@ consomem seus outputs:
 | **Rede** | VPC, subnets publicas e privadas, NAT gateway |
 | **Computacao** | Cluster EKS + managed node group com launch template |
 | **Add-ons** | `metrics-server` (habilita o HPA) e AWS Load Balancer Controller |
+| **Armazenamento** | EBS CSI gerenciado + StorageClass gp3 criptografada; prova de volume no workflow |
 | **Observabilidade** | Collector NRDOT (`nr-k8s-otel-collector`) no namespace `newrelic` |
 | **Integracao** | `db_client_sg_id` — identidade de rede que autoriza o acesso EKS → RDS |
 | **Contrato** | `outputs.tf` e a interface publica consumida por banco e serverless |
@@ -172,6 +173,19 @@ O backend remoto e os workflows manuais de apply/destroy estao documentados em
 quando o EKS e destruido.
 
 ## AWS Academy
+
+### Armazenamento da Fase 4
+
+O mesmo apply instala `aws-ebs-csi-driver` usando as permissoes existentes dos nodes
+(`LabRole`) e cria a StorageClass `soat-ebs-gp3`, sem IAM novo. O workflow provisiona
+um volume temporario, testa escrita/leitura e confere sua limpeza. A instalacao e
+repetivel nas proximas recriacoes do lab. Detalhes, limitacoes de permissoes e ciclo
+de vida em [docs/storage.md](docs/storage.md).
+
+Usar o output `storage_class_name` como Variable `STORAGE_CLASS` da Plataforma. O
+output `ebs_csi_addon_version` registra a versao efetiva; `EBS_CSI_ADDON_VERSION`
+opcional no `prod` permite fixa-la. O destroy exige remover deliberadamente os PVs
+dos workloads antes do driver/cluster. Status `ACTIVE` nao substitui o teste real.
 
 - `LabRole` e a **unica** role usavel (IAM bloqueado): cluster e nodes a reusam
 - EKS usa recursos `aws_eks_cluster`/`aws_eks_node_group` diretos. O modulo EKS nao
