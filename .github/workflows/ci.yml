@@ -38,6 +38,9 @@ jobs:
       - name: terraform validate
         run: terraform validate -no-color
 
+      - name: Validar sintaxe dos scripts
+        run: bash -n .github/scripts/*.sh
+
       - name: Verificar contrato W5 do collector
         shell: bash
         run: |

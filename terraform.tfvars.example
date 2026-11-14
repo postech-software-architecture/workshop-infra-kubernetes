@@ -4,3 +4,7 @@ project = "workshop"
 
 cluster_version   = "1.35"
 node_desired_size = 2
+
+# Opcional: fixe a versao compativel informada pelo output ebs_csi_addon_version.
+# Na pipeline, a mesma opcao e a Variable EBS_CSI_ADDON_VERSION do Environment prod.
+# ebs_csi_addon_version = "v1.40.0-eksbuild.1"

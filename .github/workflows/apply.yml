@@ -69,7 +69,13 @@ jobs:
             -backend-config="dynamodb_table=${TFSTATE_LOCK_TABLE}"
 
       - name: Terraform plan
-        run: terraform plan -input=false -out=tfplan
+        env:
+          EBS_CSI_ADDON_VERSION: ${{ vars.EBS_CSI_ADDON_VERSION }}
+        run: |
+          if [ -n "${EBS_CSI_ADDON_VERSION:-}" ]; then
+            export TF_VAR_ebs_csi_addon_version="$EBS_CSI_ADDON_VERSION"
+          fi
+          terraform plan -input=false -out=tfplan
 
       - name: Verificar fronteira
         run: |
@@ -128,12 +134,26 @@ jobs:
       - name: Terraform apply
         run: terraform apply -input=false -auto-approve tfplan
 
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+
+      - name: Validar provisionamento e limpeza de volume EBS
+        shell: bash
+        run: |
+          export CLUSTER_NAME="$(terraform output -raw cluster_name)"
+          export STORAGE_CLASS="$(terraform output -raw storage_class_name)"
+          bash .github/scripts/validate-storage.sh
+
       - name: Publicar outputs para o spike
         run: |
           {
             echo '## Outputs para o spike VPC Link'
             echo
             echo "cluster_name=$(terraform output -raw cluster_name)"
+            echo "storage_class_name=$(terraform output -raw storage_class_name)"
+            echo "ebs_csi_addon_version=$(terraform output -raw ebs_csi_addon_version)"
             echo "vpc_id=$(terraform output -raw vpc_id)"
             echo "private_subnet_ids=$(terraform output -json private_subnet_ids | jq -r 'join(",")')"
           } >> "$GITHUB_STEP_SUMMARY"

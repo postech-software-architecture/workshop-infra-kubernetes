@@ -16,6 +16,17 @@ variable "cluster_version" {
   default     = "1.35"
 }
 
+variable "ebs_csi_addon_version" {
+  description = "Versao do add-on EBS CSI. Null seleciona a versao default compativel recomendada pela AWS; informe uma versao para fixa-la."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ebs_csi_addon_version == null || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+-eksbuild\\.[0-9]+$", var.ebs_csi_addon_version))
+    error_message = "Use null ou uma versao EKS como v1.40.0-eksbuild.1."
+  }
+}
+
 variable "node_instance_types" {
   description = "Tipos de instancia do managed node group"
   type        = list(string)
