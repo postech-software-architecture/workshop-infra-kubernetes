@@ -26,4 +26,9 @@ esperados e SSM Online. No modo resume a confirmação é
 Falhas são reportadas sem imprimir configurações, tokens, Secrets ou journal bruto.
 O workflow não adiciona permissões caso o Academy negue SSM.
 
+Após qualquer execução também consulta nós, pods/PVCs, eventos, métricas e estado
+do RDS, com mensagens de inicialização sanitizadas das dependências/aplicações.
+Nenhum valor de Secret é consultado. A verificação de retomada aguarda Available
+antes de rollout status para não encerrar pelo deadline antigo acumulado sem nós.
+
 Referência: https://docs.aws.amazon.com/eks/latest/userguide/al2023.html
