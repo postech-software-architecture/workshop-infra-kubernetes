@@ -1,0 +1,60 @@
+name: EKS node services - Academy
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [inspect, resume]
+        default: inspect
+        required: true
+      confirmation:
+        description: Para resume, digite RETOMAR SERVICOS DOS NOS
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: terraform-cluster-prod
+  cancel-in-progress: false
+jobs:
+  nodes:
+    if: github.ref == 'refs/heads/main'
+    environment: prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate operation confirmation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [ "$OPERATION" = resume ]; then
+            test "$CONFIRMATION" = 'RETOMAR SERVICOS DOS NOS'
+          fi
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+      - uses: azure/setup-kubectl@v4
+      - name: Inspect or resume existing managed node services through SSM
+        env:
+          OPERATION: ${{ inputs.operation }}
+        run: python3 -u .github/scripts/node-ssm.py --cluster workshop-eks --operation "$OPERATION"
+      - name: Verify actual node registration and application rollouts
+        if: inputs.operation == 'resume'
+        run: |
+          aws eks update-kubeconfig --name workshop-eks
+          for attempt in $(seq 1 60); do
+            count=$(kubectl get nodes -o json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["items"]))')
+            [ "$count" -ge 2 ] && break
+            sleep 5
+          done
+          test "$count" -ge 2
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          kubectl -n workshop rollout status deployment/os-service --timeout=300s
+          kubectl -n workshop rollout status deployment/billing-service --timeout=180s
+          kubectl -n workshop rollout status deployment/execucao-service --timeout=180s
+          kubectl -n workshop rollout status deployment/fase4-edge --timeout=180s
