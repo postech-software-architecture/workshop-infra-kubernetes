@@ -54,7 +54,13 @@ jobs:
           done
           test "$count" -ge 2
           kubectl wait --for=condition=Ready nodes --all --timeout=300s
-          kubectl -n workshop rollout status deployment/os-service --timeout=300s
+          kubectl -n workshop wait --for=condition=Available deployment/os-service --timeout=300s
+          kubectl -n workshop rollout status deployment/os-service --timeout=180s
           kubectl -n workshop rollout status deployment/billing-service --timeout=180s
           kubectl -n workshop rollout status deployment/execucao-service --timeout=180s
           kubectl -n workshop rollout status deployment/fase4-edge --timeout=180s
+      - name: Report cluster and dependency health
+        if: always()
+        run: |
+          aws eks update-kubeconfig --name workshop-eks
+          python3 -u .github/scripts/cluster-health.py
